@@ -1,5 +1,5 @@
 const db = require("../../models");
-const Point = db.points;
+const Point = db.points; // Поменял имя переменной на Point, чтобы избежать переопределения
 const PORTS = require("../Port/Port")
 const addPoint = async (req, res) => {
     let info = {
