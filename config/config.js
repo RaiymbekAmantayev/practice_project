@@ -5,6 +5,7 @@ module.exports = {
     DB: 'videoservice',
     dialect: 'mysql',
 
+
     pool: {
         max: 5,
         min: 0,
