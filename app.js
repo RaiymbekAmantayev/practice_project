@@ -1,14 +1,15 @@
 const express = require("express");
 const cors = require("cors");
-// const config = require("./Port/default.json")
+
+const connectBusboy = require('connect-busboy');
 const Port ={
     Port: process.env.PORT
-}; // Access the Port property directly
-
-// Rest of your code...
+};
 
 const app = express();
 const morgan = require("morgan");
+
+
 
 // middleware
 app.use(express.json());
@@ -17,6 +18,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("combined"));
 app.use(express.urlencoded({ extended: true }));
+app.use(connectBusboy());
 
 
 
