@@ -1,8 +1,9 @@
 const express = require("express");
 const cors = require("cors");
 // const config = require("./Port/default.json")
-const config = require("./Port/default.json");
-const Port = config.PortAktobe; // Access the Port property directly
+const Port ={
+    Port: process.env.PORT
+}; // Access the Port property directly
 
 // Rest of your code...
 
@@ -29,8 +30,8 @@ app.use("/api/user", UserRouter)
 app.use("/api/file", FileRouter)
 app.use("/api/rep", ReplicaseRouter)
 
-app.listen(Port, () => {
-    console.log('Server running on port http://localhost:' + Port);
+app.listen(Port.Port, () => {
+    console.log('Server running on port http://localhost:' + Port.Port);
 });
 
 

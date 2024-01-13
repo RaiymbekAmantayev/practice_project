@@ -1,11 +1,14 @@
 const db = require("../models");
 const Point = db.points; // Поменял имя переменной на Point, чтобы избежать переопределения
-const config = require("../Port/default.json");
-const Port = config.PortAktobe;
+const config = {
+    port: process.env.PORT,
+    folder : process.env.ROOT_FOLDER
+}
+
 const addPoint = async (req, res) => {
     let info = {
         code: req.body.code,
-        base_url:  `http://127.0.0.1:${Port}`,
+        base_url:  `http://127.0.0.1:${config.port}`,
         root_folder: req.body.root_folder
     };
     try {
@@ -22,7 +25,7 @@ const addPoint = async (req, res) => {
 const showPoint = async (req, res)=> {
     const point = await Point.findAll()
     res.send(point)
-    console.log(PORTS)
+    console.log(config.port)
 }
 
 const Delete = async (req, res)=>{
