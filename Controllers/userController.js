@@ -3,12 +3,15 @@ const Users = db.users;
 const bcrypt = require("bcrypt");
 const { sign } = require("jsonwebtoken");
 const Point = db.points
-const PORTS = require("../Port/default.json");
+const config = {
+    port: process.env.PORT,
+    folder : process.env.ROOT_FOLDER
+}
 const Auth = async(req, res) => {
     const { email, password } = req.body;
     try {
         const hash = await bcrypt.hash(password, 10);
-        const point = await Point.findOne({where:{base_url: `http://127.0.0.1:${PORTS}`}})
+        const point = await Point.findOne({where:{base_url: `http://127.0.0.1:${config.port}`}})
         const pointId = point.id;
         const newUser = await Users.create({
             email: email,
