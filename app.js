@@ -1,9 +1,10 @@
 const express = require("express");
 const cors = require("cors");
-
+const path = require('path');
 const connectBusboy = require('connect-busboy');
 const Port ={
-    Port: process.env.PORT
+    Port: process.env.PORT,
+    folder: process.env.ROOT_FOLDER
 };
 
 const app = express();
@@ -13,13 +14,13 @@ const morgan = require("morgan");
 
 // middleware
 app.use(express.json());
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("combined"));
 app.use(express.urlencoded({ extended: true }));
 app.use(connectBusboy());
-
+app.use(`/${Port.folder}`, express.static(path.join(__dirname, `/${Port.folder}`)));
 
 
 const PointRouter = require("./router/point_router")

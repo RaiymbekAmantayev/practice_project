@@ -5,5 +5,6 @@ const ReplicaseController = require("../Controllers/Replicas_Controller");
 
 router.post("/add",  ReplicaseController.SendReplicas);
 router.get("/show", ReplicaseController.Show)
+router.get("/showByDoc", ReplicaseController.ShowByDocId)
 // router.get("/show",  PointController.showPoint);
 module.exports=router;

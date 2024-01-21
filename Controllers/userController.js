@@ -54,7 +54,43 @@ const Login = async (req, res) => {
     }
 };
 
+const getCurrentUser = async (req,res)=>{
+    try {
+        const userId = req.user.id
+        const user = await Users.findByPk(userId, {include:[
+                {
+                    model:Point,
+                    as: "points"
+                }
+            ]})
+        res.status(200).send(user)
+        }catch (err){
+            console.log(err)
+    }
+}
+const getUserByEmail = async (req, res)=>{
+    try{
+        const email = req.query.email
+        const user = await Users.findOne({where:{email:email},
+            include:[
+                {
+                    model: Point,
+                    as: "points"
+                }
+            ]})
+        if (user) {
+            res.status(200).send(user);
+        } else {
+            res.status(404).send("Пользователь не найден");
+        }
+    } catch (e) {
+        console.error(e);
+        res.status(500).send("Внутренняя ошибка сервера");
+    }
+}
 module.exports={
     Auth,
-    Login
+    Login,
+    getCurrentUser,
+    getUserByEmail
 }

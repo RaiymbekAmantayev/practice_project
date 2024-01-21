@@ -61,16 +61,6 @@ db.file.belongsTo(db.users, {
     foreignKey: 'userId',
     as: 'user'
 });
-// points
-db.points.hasMany(db.file, {
-    foreignKey: 'pointId',
-    as: 'file'
-});
-
-db.file.belongsTo(db.points, {
-    foreignKey: 'pointId',
-    as: 'points'
-});
 
 // replicas
 // В модели file

@@ -1,6 +1,6 @@
 module.exports = (sequelize, DataTypes) => {
     const File = sequelize.define("files", {
-        title: {
+        name: {
             type: DataTypes.STRING,
             allowNull: false,
         },
@@ -16,13 +16,9 @@ module.exports = (sequelize, DataTypes) => {
                 key: "id",
             }
         },
-        pointId: {
-            type: DataTypes.INTEGER,
+        documentId: {
+            type: DataTypes.STRING,
             allowNull: true,
-            references: {
-                model: "points",
-                key: "id",
-            }
         },
     });
     return File;

@@ -6,6 +6,7 @@ const Point = db.points
 const Busboy = require('busboy');
 const fs = require('fs');
 const path = require('path');
+const {Sequelize} = require("sequelize");
 
 const config = {
     port: process.env.PORT,
@@ -36,17 +37,15 @@ const addFile = async (req, res) => {
     const user = req.user;
 
     try {
-        const point = await Point.findOne({ where: { base_url: `http://127.0.0.1:${config.port}` } });
-        const pointId = point.id;
         const userId = user.id;
 
         req.pipe(req.busboy);
 
-        let title, documentId;
+        let name, documentId;
 
         req.busboy.on('field', (fieldname, val) => {
-            if (fieldname === 'title') {
-                title = val;
+            if (fieldname === 'name') {
+                name = val;
             } else if (fieldname === 'documentId') {
                 documentId = val;
             }
@@ -54,25 +53,24 @@ const addFile = async (req, res) => {
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
             try {
                 fileIdCounter++
-                console.log('title:', title);
+                console.log('name:',name);
                 console.log('documentId:', documentId);
                 const folderPath = path.join(config.folder, documentId, fileIdCounter.toString());
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
                 }
 
-                // Прямо используйте оригинальное имя файла без использования path.parse
-                const filePath = path.join(folderPath, originalFilename.filename);
+                const filePath = path.join(folderPath, fileIdCounter.toString());
                 const writeStream = fs.createWriteStream(filePath);
 
                 file.pipe(writeStream);
-
+                name = originalFilename.filename
                 writeStream.on('finish', async () => {
                     const fileInfo = {
-                        title,
+                        name,
                         file: filePath,
                         userId,
-                        pointId,
+                        documentId
                     };
 
                     const newFile = await File.create(fileInfo);
@@ -95,24 +93,33 @@ const addFile = async (req, res) => {
     }
 };
 
+const getAllLocalFiles = async (req, res) => {
+    try {
+        const localFiles = await File.findAll({
+            where: {
+                file: {
+                    [Sequelize.Op.like]: `${config.folder}%`,
+                },
+            },
+        });
+
+        // Обработка найденных файлов
+        res.send( localFiles );
+    } catch (error) {
+        console.error('Ошибка при получении данных:', error);
+        res.status(500).json({ error: 'Internal Server Error' });
+    }
+};
 
 const ShowAll = async (req, res) => {
     try {
-        const point = await Point.findOne({ where: { base_url: `http://127.0.0.1:${PORTS}` }});
-        const pointId = point.id;
-
         const files = await File.findAll({
             include: [
                 {
                     model: User,
                     as: "user"
                 },
-                {
-                    model: Point,
-                    as: "points"
-                }
             ],
-            where: { pointId: pointId },
         });
         res.status(200).send(files);
     } catch (err) {
@@ -120,8 +127,38 @@ const ShowAll = async (req, res) => {
     }
 };
 
+const getFilesByDocument = async (req, res)=>{
+    try{
+       const documentId = req.query.documentId
+       const files = await File.findAll({where:{documentId:documentId}})
+        if (files) {
+            res.status(200).send(files);
+        } else {
+            res.status(404).send("файл не найден");
+        }
+    }catch (err){
+        res.status(500).send("Ошибка при получении данных");
+    }
+}
+
+const getDocuments = async (req, res)=>{
+    const distinctDocumentIds = await File.findAll({
+        attributes: [
+            [Sequelize.fn('DISTINCT', Sequelize.col('documentId')), 'documentId'],
+        ],
+        where: {
+            file: {
+                [Sequelize.Op.like]: `${config.folder}%`,
+            },
+        },
+    });
+    res.send(distinctDocumentIds)
+}
 
 module.exports = {
     addFile,
-    ShowAll
+    ShowAll,
+    getFilesByDocument,
+    getAllLocalFiles,
+    getDocuments
 };

@@ -1,4 +1,4 @@
-const fs = require('fs-extra');
+// const fs = require('fs-extra');
 const sharp = require('sharp');
 
 async function compressVideo(inputPath) {
