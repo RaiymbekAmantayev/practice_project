@@ -8,5 +8,6 @@ router.get('/show', passport.authenticate('jwt', {session: false}),  fileControl
 router.get('/search', passport.authenticate('jwt', {session: false}),  fileController.getFilesByDocument)
 router.get("/local", passport.authenticate('jwt', {session: false}),  fileController.getAllLocalFiles)
 router.get("/docs", passport.authenticate('jwt', {session: false}),  fileController.getDocuments)
+router.get("/last", passport.authenticate('jwt', {session: false}),  fileController.LastFile)
 
 module.exports = router;

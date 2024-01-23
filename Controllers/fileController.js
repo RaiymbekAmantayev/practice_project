@@ -66,6 +66,7 @@ const addFile = async (req, res) => {
                 file.pipe(writeStream);
                 name = originalFilename.filename
                 writeStream.on('finish', async () => {
+                    const fileInfoArray = [];
                     const fileInfo = {
                         name,
                         file: filePath,
@@ -74,8 +75,9 @@ const addFile = async (req, res) => {
                     };
 
                     const newFile = await File.create(fileInfo);
-
+                    fileInfoArray.push(newFile);
                     console.log('Файл успешно сохранен в базу данных:', newFile);
+                    res.status(200).send(fileInfoArray);
                 });
             } catch (error) {
                 console.error('Ошибка обработки загрузки файла:', error);
@@ -85,7 +87,7 @@ const addFile = async (req, res) => {
 
         req.busboy.on('finish', () => {
             // Finalize any additional logic if needed
-            res.status(200).send('File uploaded successfully!');
+            console.log("success")
         });
     } catch (error) {
         console.error('Error processing request:', error);
@@ -155,10 +157,16 @@ const getDocuments = async (req, res)=>{
     res.send(distinctDocumentIds)
 }
 
+const LastFile = async (req, res)=>{
+    const file = await File.findOne({ order: [['id', 'DESC']] });
+    res.send(file)
+}
+
 module.exports = {
     addFile,
     ShowAll,
     getFilesByDocument,
     getAllLocalFiles,
-    getDocuments
+    getDocuments,
+    LastFile
 };
