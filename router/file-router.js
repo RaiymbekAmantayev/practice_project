@@ -4,6 +4,7 @@ const passport = require('../middleware/passport')
 
 
 router.post('/add', passport.authenticate('jwt', {session: false}),  fileController.addFile)
+router.post('/rep', passport.authenticate('jwt', {session: false}),  fileController.addFileWithoutDb)
 router.get('/show', passport.authenticate('jwt', {session: false}),  fileController.ShowAll)
 router.get('/search', passport.authenticate('jwt', {session: false}),  fileController.getFilesByDocument)
 router.get("/local", passport.authenticate('jwt', {session: false}),  fileController.getAllLocalFiles)

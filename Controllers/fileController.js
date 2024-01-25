@@ -95,6 +95,61 @@ const addFile = async (req, res) => {
     }
 };
 
+
+const addFileWithoutDb = async (req, res) => {
+    try {
+        req.pipe(req.busboy);
+
+        let name, documentId, fileId;
+
+        req.busboy.on('field', (fieldname, val) => {
+            if (fieldname === 'name') {
+                name = val;
+            } else if (fieldname === 'documentId') {
+                documentId = val;
+            } else if (fieldname === 'fileId') {
+                fileId = val;
+            }
+        });
+        req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
+            try {
+                console.log('name:', name);
+                console.log('documentId:', documentId);
+                console.log('fileId:', fileId); // Используйте переданный id файла
+
+                const folderPath = path.join(config.folder, documentId, fileId.toString());
+                if (!fs.existsSync(folderPath)) {
+                    fs.mkdirSync(folderPath, { recursive: true });
+                }
+
+                const filePath = path.join(folderPath, fileId.toString());
+                const writeStream = fs.createWriteStream(filePath);
+
+                file.pipe(writeStream);
+                name = originalFilename.filename;
+                writeStream.on('finish', async () => {
+                    // Отсутствует сохранение в базу данных
+
+                    // Вместо этого, отправка подтверждения успешной загрузки
+                    res.status(200).send('File successfully saved to folder');
+                });
+            } catch (error) {
+                console.error('Ошибка обработки загрузки файла:', error);
+                res.status(500).send({ error: 'Внутренняя ошибка сервера' });
+            }
+        });
+
+        req.busboy.on('finish', () => {
+            // Finalize any additional logic if needed
+            console.log("success");
+        });
+    } catch (error) {
+        console.error('Error processing request:', error);
+        res.status(500).send({ error: 'Internal Server Error' });
+    }
+};
+
+
 const getAllLocalFiles = async (req, res) => {
     try {
         const localFiles = await File.findAll({
@@ -168,5 +223,7 @@ module.exports = {
     getFilesByDocument,
     getAllLocalFiles,
     getDocuments,
-    LastFile
+    LastFile,
+    addFileWithoutDb
+
 };

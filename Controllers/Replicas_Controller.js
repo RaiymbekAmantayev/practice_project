@@ -1,6 +1,9 @@
-const fs = require('fs-extra');
+const fss = require('fs-extra');
 const db = require('../models');
+const axios = require('axios');
+const FormData = require('form-data');
 const path = require('path');
+const fs = require('fs').promises;
 const Replicas = db.file_replicas;
 const File = db.file;
 const Point = db.points;
@@ -13,14 +16,14 @@ const config = {
 const copyFile = async (sourcePath, destinationPath) => {
     try {
         // Получаем информацию о файле
-        const sourceStats = fs.statSync(sourcePath);
+        const sourceStats = fss.statSync(sourcePath);
 
         // Создаем путь для файла в директории назначения
         const fileName = path.basename(sourcePath);
         const destinationFile = path.join(destinationPath, fileName);
 
         // Копируем файл
-        await fs.copy(sourcePath, destinationFile, { overwrite: true });
+        await fss.copy(sourcePath, destinationFile, { overwrite: true });
 
         console.log(`Файл скопирован из ${sourcePath} в ${destinationFile}`);
     } catch (error) {
@@ -30,45 +33,66 @@ const copyFile = async (sourcePath, destinationPath) => {
 };
 
 
-const SendReplicas = async (req, res) => {
-    let info = {
-        fileId: req.body.fileId,
-        pointId: req.body.pointId,
-        status: 'waiting',
-    };
-        const newReplicas = await Replicas.create(info);
-        try{
-            if (newReplicas) {
-                const replicase = await Replicas.findByPk(newReplicas.id);
 
+const SendReplicas = async (req, res) => {
+    try {
+        const info = {
+            fileId: req.body.fileId,
+            pointId: req.body.pointId,
+            status: 'waiting',
+        };
+
+        const newReplicas = await Replicas.create(info);
+
+        try {
+            if (newReplicas) {
                 const file = await File.findByPk(req.body.fileId);
-                const point = await Point.findByPk(req.body.pointId)
+                const point = await Point.findByPk(req.body.pointId);
 
                 if (file && point) {
                     const folderPath = path.join(config.folder, file.documentId, file.id.toString());
                     const sourcePath = path.join(folderPath, file.id.toString());
-                    const destinationPath = path.join(point.root_folder, file.documentId, file.id.toString()) // Используйте root_folder для директории
+                    console.log(folderPath, sourcePath)
 
-                    console.log(destinationPath);
-                    await copyFile(sourcePath, destinationPath);
+                    const formData = new FormData();
+                    formData.append('documentId', file.documentId);
+                    const fileStream = fss.createReadStream(file.file);
+                    formData.append('fileId', file.id);
+
+                    formData.append('file', fileStream);
+                    console.log(formData)
+                    const response = await axios.post(`${point.base_url}/api/file/rep`, formData, {
+                        headers: {
+                            'Content-Type': 'multipart/form-data',
+                            'Authorization': req.headers.authorization,
+                        },
+                    });
+
+                    if (response.status === 200) {
+                        const edited = {
+                            status: 'ready',
+                        };
+                        await Replicas.update(edited, { where: { id: newReplicas.id } });
+                        res.status(200).send(newReplicas);
+                    } else {
+                        res.status(500).send({ error: 'Error replicating file to remote server' });
+                    }
+                } else {
+                    res.status(404).send({ error: 'File or point not found' });
                 }
-                const edited = {
-                    status: 'ready',
-                };
-                await Replicas.update(edited, {where: {id: newReplicas.id}});
-
-                res.status(200).send(replicase);
-
             } else {
-                res.status(200).send(newReplicas);
+                res.status(500).send({ error: 'Error creating replicas' });
             }
-
-            console.log(newReplicas);
-        }catch (e){
-            console.log(e)
+        } catch (error) {
+            console.error('Error in SendReplicas:', error);
+            res.status(500).send({ error: 'Internal Server Error' });
         }
+    } catch (error) {
+        console.error('Error creating replicas:', error);
+        res.status(500).send({ error: 'Internal Server Error' });
+    }
+};
 
-}
 
 
 const Show = async (req, res) => {
