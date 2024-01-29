@@ -36,50 +36,54 @@ const copyFile = async (sourcePath, destinationPath) => {
 
 const SendReplicas = async (req, res) => {
     try {
-        const info = {
-            fileId: req.body.fileId,
-            pointId: req.body.pointId,
+        const infoArray = req.body.replicas.map(replica => ({
+            fileId: replica.fileId,
+            pointId: replica.pointId,
             status: 'waiting',
-        };
+        }));
 
-        const newReplicas = await Replicas.create(info);
+        const newReplicas = await Replicas.bulkCreate(infoArray);
 
         try {
-            if (newReplicas) {
-                const file = await File.findByPk(req.body.fileId);
-                const point = await Point.findByPk(req.body.pointId);
+            if (newReplicas && newReplicas.length > 0) {
+                const replicationPromises = newReplicas.map(async replica => {
+                    const file = await File.findByPk(replica.fileId);
+                    const point = await Point.findByPk(replica.pointId);
 
-                if (file && point) {
-                    const folderPath = path.join(config.folder, file.documentId, file.id.toString());
-                    const sourcePath = path.join(folderPath, file.id.toString());
-                    console.log(folderPath, sourcePath)
+                    if (file && point) {
+                        const folderPath = path.join(config.folder, file.documentId, file.id.toString());
+                        const sourcePath = path.join(folderPath, file.id.toString());
 
-                    const formData = new FormData();
-                    formData.append('documentId', file.documentId);
-                    const fileStream = fss.createReadStream(file.file);
-                    formData.append('fileId', file.id);
+                        const formData = new FormData();
+                        formData.append('documentId', file.documentId);
+                        const fileStream = fss.createReadStream(file.file);
+                        formData.append('fileId', file.id);
+                        formData.append('file', fileStream);
 
-                    formData.append('file', fileStream);
-                    console.log(formData)
-                    const response = await axios.post(`${point.base_url}/api/file/rep`, formData, {
-                        headers: {
-                            'Content-Type': 'multipart/form-data',
-                            'Authorization': req.headers.authorization,
-                        },
-                    });
+                        const response = await axios.post(`${point.base_url}/api/file/rep`, formData, {
+                            headers: {
+                                'Content-Type': 'multipart/form-data',
+                                'Authorization': req.headers.authorization,
+                            },
+                        });
 
-                    if (response.status === 200) {
-                        const edited = {
-                            status: 'ready',
-                        };
-                        await Replicas.update(edited, { where: { id: newReplicas.id } });
-                        res.status(200).send(newReplicas);
+                        if (response.status === 200) {
+                            const edited = {
+                                status: 'ready',
+                            };
+                            await Replicas.update(edited, { where: { id: replica.id } });
+                        } else {
+                            console.error('Error replicating file to remote server:', response.data);
+                        }
                     } else {
-                        res.status(500).send({ error: 'Error replicating file to remote server' });
+                        console.error('File or point not found for replica:', replica);
                     }
-                } else {
-                    res.status(404).send({ error: 'File or point not found' });
-                }
+                });
+
+                // Wait for all replication promises to resolve
+                await Promise.all(replicationPromises);
+
+                res.status(200).send(newReplicas);
             } else {
                 res.status(500).send({ error: 'Error creating replicas' });
             }
@@ -92,6 +96,8 @@ const SendReplicas = async (req, res) => {
         res.status(500).send({ error: 'Internal Server Error' });
     }
 };
+
+
 
 
 

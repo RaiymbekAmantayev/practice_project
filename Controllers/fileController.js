@@ -38,10 +38,10 @@ const addFile = async (req, res) => {
 
     try {
         const userId = user.id;
-
         req.pipe(req.busboy);
 
         let name, documentId;
+        const fileInfoArray = [];  // Массив для хранения информации о файлах
 
         req.busboy.on('field', (fieldname, val) => {
             if (fieldname === 'name') {
@@ -50,10 +50,13 @@ const addFile = async (req, res) => {
                 documentId = val;
             }
         });
+
+        const filePromises = [];  // Массив для хранения промисов добавления файлов в базу
+
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
             try {
-                fileIdCounter++
-                console.log('name:',name);
+                fileIdCounter++;
+                console.log('name:', name);
                 console.log('documentId:', documentId);
                 const folderPath = path.join(config.folder, documentId, fileIdCounter.toString());
                 if (!fs.existsSync(folderPath)) {
@@ -64,30 +67,35 @@ const addFile = async (req, res) => {
                 const writeStream = fs.createWriteStream(filePath);
 
                 file.pipe(writeStream);
-                name = originalFilename.filename
-                writeStream.on('finish', async () => {
-                    const fileInfoArray = [];
-                    const fileInfo = {
-                        name,
-                        file: filePath,
-                        userId,
-                        documentId
-                    };
+                name = originalFilename.filename;
 
-                    const newFile = await File.create(fileInfo);
-                    fileInfoArray.push(newFile);
-                    console.log('Файл успешно сохранен в базу данных:', newFile);
-                    res.status(200).send(fileInfoArray);
-                });
+                const fileInfo = {
+                    name,
+                    file: filePath,
+                    userId,
+                    documentId
+                };
+
+                const filePromise = File.create(fileInfo);
+                filePromises.push(filePromise);
             } catch (error) {
                 console.error('Ошибка обработки загрузки файла:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
             }
         });
 
-        req.busboy.on('finish', () => {
-            // Finalize any additional logic if needed
-            console.log("success")
+        req.busboy.on('finish', async () => {
+            try {
+                // Дождитесь завершения всех промисов добавления файлов в базу
+                const newFiles = await Promise.all(filePromises);
+                fileInfoArray.push(...newFiles);
+
+                console.log('Файлы успешно сохранены в базу данных:', fileInfoArray);
+                res.status(200).send(fileInfoArray);
+            } catch (error) {
+                console.error('Ошибка при завершении:', error);
+                res.status(500).send({ error: 'Внутренняя ошибка сервера' });
+            }
         });
     } catch (error) {
         console.error('Error processing request:', error);
@@ -100,7 +108,7 @@ const addFileWithoutDb = async (req, res) => {
     try {
         req.pipe(req.busboy);
 
-        let name, documentId, fileId;
+        let name, documentId, fileIds = [];
 
         req.busboy.on('field', (fieldname, val) => {
             if (fieldname === 'name') {
@@ -108,46 +116,62 @@ const addFileWithoutDb = async (req, res) => {
             } else if (fieldname === 'documentId') {
                 documentId = val;
             } else if (fieldname === 'fileId') {
-                fileId = val;
+                fileIds.push(val);
             }
         });
+
+        const filePromises = [];
+
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
             try {
                 console.log('name:', name);
                 console.log('documentId:', documentId);
-                console.log('fileId:', fileId); // Используйте переданный id файла
+                console.log('fileIds:', fileIds); // Используйте переданный массив id файлов
 
-                const folderPath = path.join(config.folder, documentId, fileId.toString());
+                const folderPath = path.join(config.folder, documentId);
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
                 }
 
-                const filePath = path.join(folderPath, fileId.toString());
+                const fileId = fileIds.shift(); // Получение следующего fileId из массива
+
+                const filePath = path.join(folderPath, fileId);
                 const writeStream = fs.createWriteStream(filePath);
 
                 file.pipe(writeStream);
                 name = originalFilename.filename;
-                writeStream.on('finish', async () => {
-                    // Отсутствует сохранение в базу данных
-
-                    // Вместо этого, отправка подтверждения успешной загрузки
-                    res.status(200).send('File successfully saved to folder');
-                });
+                filePromises.push(
+                    new Promise((resolve, reject) => {
+                        writeStream.on('finish', () => {
+                            resolve({ fileId, filePath });
+                        });
+                        writeStream.on('error', reject);
+                    })
+                );
             } catch (error) {
                 console.error('Ошибка обработки загрузки файла:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
             }
         });
 
-        req.busboy.on('finish', () => {
-            // Finalize any additional logic if needed
-            console.log("success");
+        req.busboy.on('finish', async () => {
+            try {
+                // Дождитесь завершения всех асинхронных операций по сохранению файлов
+                const uploadedFiles = await Promise.all(filePromises);
+
+                // Вместо этого, отправка подтверждения успешной загрузки с информацией о загруженных файлах
+                res.status(200).send({ success: true, uploadedFiles });
+            } catch (error) {
+                console.error('Ошибка при завершении:', error);
+                res.status(500).send({ error: 'Внутренняя ошибка сервера' });
+            }
         });
     } catch (error) {
         console.error('Error processing request:', error);
         res.status(500).send({ error: 'Internal Server Error' });
     }
 };
+
 
 
 const getAllLocalFiles = async (req, res) => {
@@ -225,5 +249,4 @@ module.exports = {
     getDocuments,
     LastFile,
     addFileWithoutDb
-
 };
