@@ -1,17 +1,71 @@
 const db = require("../models");
 const File = db.file;
-const {compressVideo} = require("./compressVideo");
+// const {compressVideo} = require("/compressVideo.js");
 const User = db.users
 const Point = db.points
 const Busboy = require('busboy');
 const fs = require('fs');
 const path = require('path');
 const {Sequelize} = require("sequelize");
+const { exec } = require('child_process');
+const ffmpeg = require("fluent-ffmpeg");
 
 const config = {
     port: process.env.PORT,
     folder : process.env.ROOT_FOLDER
 }
+
+function compressVideo(filePath) {
+        const ffmpegPath = 'C:\\Ffmpeg\\ffmpeg-2024-01-28-git-e0da916b8f-full_build\\bin\\ffmpeg.exe';
+        let ffmpeg = require("fluent-ffmpeg");
+        ffmpeg.setFfmpegPath(ffmpegPath);
+
+        console.log('Начало сжатия для файла:', filePath);
+
+        const baseName = path.basename(filePath, path.extname(filePath));
+
+        let outputFilePath = path.join(path.dirname(filePath), `${baseName}.mp4`);
+
+        ffmpeg(filePath)
+            .output(outputFilePath)
+            .videoCodec('libx264')
+            .noAudio()
+            .size('100x100')
+            .on('error', function (err) {
+                console.error('Ошибка при сжатии:', err);
+            })
+            .on('end', function () {
+                console.log('Сжатие завершено для файла:', filePath);
+
+                // Теперь удаляем оригинальный файл
+                fs.unlink(filePath, (err) => {
+                    if (err) {
+                        console.error('Ошибка при удалении оригинального файла:', err);
+
+                    } else {
+                        console.log('Оригинальный файл удален:', filePath);
+
+                        // Теперь удаляем расширение у сжатого файла
+                        let compressedFilePathWithoutExt = path.join(path.dirname(filePath), baseName);
+                        fs.rename(outputFilePath, compressedFilePathWithoutExt, (err) => {
+                            if (err) {
+                                console.error('Ошибка при удалении расширения у сжатого файла:', err);
+                            } else {
+                                console.log('Расширение у сжатого файла удалено:', compressedFilePathWithoutExt);
+                            }
+                        });
+                    }
+                });
+            })
+            .run();
+}
+
+
+
+
+
+
+
 const LastId = async () => {
     try {
         const files = await File.findOne({ order: [['id', 'DESC']] });
@@ -41,7 +95,7 @@ const addFile = async (req, res) => {
         req.pipe(req.busboy);
 
         let name, documentId;
-        const fileInfoArray = [];  // Массив для хранения информации о файлах
+        const fileInfoArray = [];
 
         req.busboy.on('field', (fieldname, val) => {
             if (fieldname === 'name') {
@@ -51,13 +105,12 @@ const addFile = async (req, res) => {
             }
         });
 
-        const filePromises = [];  // Массив для хранения промисов добавления файлов в базу
+        const filePromises = [];
 
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
             try {
                 fileIdCounter++;
-                console.log('name:', name);
-                console.log('documentId:', documentId);
+
                 const folderPath = path.join(config.folder, documentId, fileIdCounter.toString());
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
@@ -66,7 +119,9 @@ const addFile = async (req, res) => {
                 const filePath = path.join(folderPath, fileIdCounter.toString());
                 const writeStream = fs.createWriteStream(filePath);
 
+
                 file.pipe(writeStream);
+
                 name = originalFilename.filename;
 
                 const fileInfo = {
@@ -76,8 +131,17 @@ const addFile = async (req, res) => {
                     documentId
                 };
 
-                const filePromise = File.create(fileInfo);
-                filePromises.push(filePromise);
+                const fileInfoWithCompression = {
+                    name,
+                    file: filePath,
+                    userId,
+                    documentId
+                };
+
+
+                const newFile = await File.create(fileInfoWithCompression);
+                fileInfoArray.push(newFile);
+                await compressVideo(filePath);
             } catch (error) {
                 console.error('Ошибка обработки загрузки файла:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
@@ -86,11 +150,11 @@ const addFile = async (req, res) => {
 
         req.busboy.on('finish', async () => {
             try {
-                // Дождитесь завершения всех промисов добавления файлов в базу
-                const newFiles = await Promise.all(filePromises);
-                fileInfoArray.push(...newFiles);
-
+                // Дождитесь завершения всех промисов добавления файлов в базу данных
+                await Promise.all(filePromises);
                 console.log('Файлы успешно сохранены в базу данных:', fileInfoArray);
+
+
                 res.status(200).send(fileInfoArray);
             } catch (error) {
                 console.error('Ошибка при завершении:', error);
@@ -98,10 +162,11 @@ const addFile = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error processing request:', error);
-        res.status(500).send({ error: 'Internal Server Error' });
+        console.error('Ошибка обработки запроса:', error);
+        res.status(500).send({ error: 'Внутренняя ошибка сервера' });
     }
 };
+
 
 
 const addFileWithoutDb = async (req, res) => {
@@ -128,14 +193,16 @@ const addFileWithoutDb = async (req, res) => {
                 console.log('documentId:', documentId);
                 console.log('fileIds:', fileIds); // Используйте переданный массив id файлов
 
-                const folderPath = path.join(config.folder, documentId);
+                const fileId = fileIds.shift();
+
+                const folderPath = path.join(config.folder, documentId, fileId.toString());
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
                 }
 
-                const fileId = fileIds.shift(); // Получение следующего fileId из массива
 
-                const filePath = path.join(folderPath, fileId);
+
+                const filePath = path.join(folderPath, fileId.toString());
                 const writeStream = fs.createWriteStream(filePath);
 
                 file.pipe(writeStream);
