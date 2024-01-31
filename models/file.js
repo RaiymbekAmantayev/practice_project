@@ -20,6 +20,10 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.STRING,
             allowNull: true,
         },
+        compressed:{
+            type: DataTypes.INTEGER,
+            allowNull: true,
+        }
     });
     return File;
 };

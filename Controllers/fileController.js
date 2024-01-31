@@ -9,13 +9,13 @@ const path = require('path');
 const {Sequelize} = require("sequelize");
 const { exec } = require('child_process');
 const ffmpeg = require("fluent-ffmpeg");
-
+const fsPromises = require('fs').promises
 const config = {
     port: process.env.PORT,
     folder : process.env.ROOT_FOLDER
 }
 
-function compressVideo(filePath) {
+function compressVideo(filePath){
         const ffmpegPath = 'C:\\Ffmpeg\\ffmpeg-2024-01-28-git-e0da916b8f-full_build\\bin\\ffmpeg.exe';
         let ffmpeg = require("fluent-ffmpeg");
         ffmpeg.setFfmpegPath(ffmpegPath);
@@ -47,13 +47,20 @@ function compressVideo(filePath) {
 
                         // Теперь удаляем расширение у сжатого файла
                         let compressedFilePathWithoutExt = path.join(path.dirname(filePath), baseName);
-                        fs.rename(outputFilePath, compressedFilePathWithoutExt, (err) => {
-                            if (err) {
-                                console.error('Ошибка при удалении расширения у сжатого файла:', err);
-                            } else {
+                        fsPromises.rename(outputFilePath, compressedFilePathWithoutExt)
+                            .then(() => {
                                 console.log('Расширение у сжатого файла удалено:', compressedFilePathWithoutExt);
-                            }
-                        });
+                                const compressed = {
+                                    compressed: 1,
+                                };
+                                return File.update(compressed, { where: { file: filePath } });
+                            })
+                            .then(() => {
+                                console.log('Обновление столбца "compressed" выполнено успешно.');
+                            })
+                            .catch((err) => {
+                                console.error('Ошибка при удалении расширения у сжатого файла:', err);
+                            });
                     }
                 });
             })
@@ -121,23 +128,15 @@ const addFile = async (req, res) => {
 
 
                 file.pipe(writeStream);
-
                 name = originalFilename.filename;
-
-                const fileInfo = {
-                    name,
-                    file: filePath,
-                    userId,
-                    documentId
-                };
 
                 const fileInfoWithCompression = {
                     name,
                     file: filePath,
                     userId,
-                    documentId
+                    documentId,
+                    compressed:0
                 };
-
 
                 const newFile = await File.create(fileInfoWithCompression);
                 fileInfoArray.push(newFile);
@@ -308,6 +307,21 @@ const LastFile = async (req, res)=>{
     res.send(file)
 }
 
+const getFileById = async (req, res) => {
+    try {
+        const ids = req.params.id.split(','); // Assuming IDs are provided as a comma-separated string
+        const files = await Promise.all(ids.map(async (id) => {
+            const file = await File.findByPk(id);
+            return file;
+        }));
+
+        res.send(files);
+    } catch (error) {
+        console.error('Error retrieving files by IDs:', error);
+        res.status(500).send('Internal Server Error');
+    }
+};
+
 module.exports = {
     addFile,
     ShowAll,
@@ -315,5 +329,6 @@ module.exports = {
     getAllLocalFiles,
     getDocuments,
     LastFile,
-    addFileWithoutDb
+    addFileWithoutDb,
+    getFileById
 };
