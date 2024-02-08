@@ -4,68 +4,20 @@ const File = db.file;
 const User = db.users
 const Point = db.points
 const Busboy = require('busboy');
+const Replicas = require('./Replicas_Controller')
 const fs = require('fs');
 const path = require('path');
 const {Sequelize} = require("sequelize");
 const { exec } = require('child_process');
 const ffmpeg = require("fluent-ffmpeg");
+const axios = require("axios");
 const fsPromises = require('fs').promises
 const config = {
     port: process.env.PORT,
     folder : process.env.ROOT_FOLDER
 }
 
-function compressVideo(filePath){
-        const ffmpegPath = 'C:\\Ffmpeg\\ffmpeg-2024-01-28-git-e0da916b8f-full_build\\bin\\ffmpeg.exe';
-        let ffmpeg = require("fluent-ffmpeg");
-        ffmpeg.setFfmpegPath(ffmpegPath);
 
-        console.log('Начало сжатия для файла:', filePath);
-
-        const baseName = path.basename(filePath, path.extname(filePath));
-
-        let outputFilePath = path.join(path.dirname(filePath), `${baseName}.mp4`);
-
-        ffmpeg(filePath)
-            .output(outputFilePath)
-            .videoCodec('libx264')
-            .noAudio()
-            .size('100x100')
-            .on('error', function (err) {
-                console.error('Ошибка при сжатии:', err);
-            })
-            .on('end', function () {
-                console.log('Сжатие завершено для файла:', filePath);
-
-                // Теперь удаляем оригинальный файл
-                fs.unlink(filePath, (err) => {
-                    if (err) {
-                        console.error('Ошибка при удалении оригинального файла:', err);
-
-                    } else {
-                        console.log('Оригинальный файл удален:', filePath);
-
-                        // Теперь удаляем расширение у сжатого файла
-                        let compressedFilePathWithoutExt = path.join(path.dirname(filePath), baseName);
-                        fsPromises.rename(outputFilePath, compressedFilePathWithoutExt)
-                            .then(() => {
-                                console.log('Расширение у сжатого файла удалено:', compressedFilePathWithoutExt);
-                                const compressed = {
-                                    compressed: 1,
-                                };
-                                return File.update(compressed, { where: { file: filePath } });
-                            })
-                            .then(() => {
-                                console.log('Обновление столбца "compressed" выполнено успешно.');
-                            })
-                            .catch((err) => {
-                                console.error('Ошибка при удалении расширения у сжатого файла:', err);
-                            });
-                    }
-                });
-            })
-            .run();
-}
 
 
 
@@ -96,6 +48,7 @@ fileIdCounter=getFieldCounter();
 
 const addFile = async (req, res) => {
     const user = req.user;
+    let pointIdArray = []; // Создаем массив для хранения всех pointId
 
     try {
         const userId = user.id;
@@ -105,8 +58,8 @@ const addFile = async (req, res) => {
         const fileInfoArray = [];
 
         req.busboy.on('field', (fieldname, val) => {
-            if (fieldname === 'name') {
-                name = val;
+            if (fieldname === 'pointId') {
+                pointIdArray.push(parseInt(val)); // Добавляем pointId в массив
             } else if (fieldname === 'documentId') {
                 documentId = val;
             }
@@ -126,7 +79,6 @@ const addFile = async (req, res) => {
                 const filePath = path.join(folderPath, fileIdCounter.toString());
                 const writeStream = fs.createWriteStream(filePath);
 
-
                 file.pipe(writeStream);
                 name = originalFilename.filename;
 
@@ -135,12 +87,12 @@ const addFile = async (req, res) => {
                     file: filePath,
                     userId,
                     documentId,
-                    compressed:0
+                    compressed: 0
                 };
 
                 const newFile = await File.create(fileInfoWithCompression);
                 fileInfoArray.push(newFile);
-                await compressVideo(filePath);
+
             } catch (error) {
                 console.error('Ошибка обработки загрузки файла:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
@@ -151,10 +103,21 @@ const addFile = async (req, res) => {
             try {
                 // Дождитесь завершения всех промисов добавления файлов в базу данных
                 await Promise.all(filePromises);
-                console.log('Файлы успешно сохранены в базу данных:', fileInfoArray);
+                console.log('Файлы успешно сохранены в базу данных и сжаты:', fileInfoArray);
 
+                // Создайте массив replicas из fileInfoArray для каждой точки
+                const replicas = [];
+                for (const pointId of pointIdArray) {
+                    const replicasForPoint = fileInfoArray.map(fileInfo => ({
+                        fileId: fileInfo.id,
+                        pointId,
+                        status: 'waiting',
+                    }));
+                    replicas.push(...replicasForPoint); // Добавляем реплики для данной точки в общий массив
+                }
 
-                res.status(200).send(fileInfoArray);
+                // Вызовите SendReplicas с новым массивом replicas
+                await Replicas.SendReplicas(req, res, replicas);
             } catch (error) {
                 console.error('Ошибка при завершении:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
@@ -165,6 +128,11 @@ const addFile = async (req, res) => {
         res.status(500).send({ error: 'Внутренняя ошибка сервера' });
     }
 };
+
+
+
+
+
 
 
 
@@ -330,5 +298,6 @@ module.exports = {
     getDocuments,
     LastFile,
     addFileWithoutDb,
-    getFileById
+    getFileById,
+
 };
