@@ -48,8 +48,8 @@ fileIdCounter=getFieldCounter();
 
 const addFile = async (req, res) => {
     const user = req.user;
-    let pointIdArray = []; // Создаем массив для хранения всех pointId
-
+    let pointIdArray = [];
+    let fileInfo = []
     try {
         const userId = user.id;
         req.pipe(req.busboy);
@@ -59,7 +59,7 @@ const addFile = async (req, res) => {
 
         req.busboy.on('field', (fieldname, val) => {
             if (fieldname === 'pointId') {
-                pointIdArray.push(parseInt(val)); // Добавляем pointId в массив
+                pointIdArray.push(parseInt(val));
             } else if (fieldname === 'documentId') {
                 documentId = val;
             }
@@ -81,7 +81,7 @@ const addFile = async (req, res) => {
 
                 file.pipe(writeStream);
                 name = originalFilename.filename;
-
+                fileInfo.push({originalFilename})
                 const fileInfoWithCompression = {
                     name,
                     file: filePath,
@@ -101,11 +101,11 @@ const addFile = async (req, res) => {
 
         req.busboy.on('finish', async () => {
             try {
-                // Дождитесь завершения всех промисов добавления файлов в базу данных
+
                 await Promise.all(filePromises);
                 console.log('Файлы успешно сохранены в базу данных и сжаты:', fileInfoArray);
 
-                // Создайте массив replicas из fileInfoArray для каждой точки
+
                 const replicas = [];
                 for (const pointId of pointIdArray) {
                     const replicasForPoint = fileInfoArray.map(fileInfo => ({
@@ -113,11 +113,15 @@ const addFile = async (req, res) => {
                         pointId,
                         status: 'waiting',
                     }));
-                    replicas.push(...replicasForPoint); // Добавляем реплики для данной точки в общий массив
+                    replicas.push(...replicasForPoint);
                 }
 
-                // Вызовите SendReplicas с новым массивом replicas
-                await Replicas.SendReplicas(req, res, replicas);
+                console.log(fileInfo)
+                const pointIds = new Set(replicas.map(replica => replica.pointId));
+                const filteredPointIdArray = pointIdArray.filter(pointId => pointIds.has(pointId));
+                if (filteredPointIdArray.length > 0) {
+                    await Replicas.SendReplicas(req, res, replicas, fileInfo);
+                }
             } catch (error) {
                 console.error('Ошибка при завершении:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });

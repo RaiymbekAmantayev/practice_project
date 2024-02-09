@@ -16,9 +16,9 @@ const config = {
     port: process.env.PORT,
     folder : process.env.ROOT_FOLDER
 }
-const compressedFilesCache = {}; // Объявляем объект для хранения путей к сжатым файлам
+const compressedFilesCache = {};
 
-// Функция для сжатия видео
+
 async function compressVideo(filePath) {
     return new Promise((resolve, reject) => {
         const ffmpegPath = 'C:\\Ffmpeg\\ffmpeg-2024-01-28-git-e0da916b8f-full_build\\bin\\ffmpeg.exe';
@@ -41,22 +41,22 @@ async function compressVideo(filePath) {
             })
             .on('end', function () {
                 console.log('Сжатие завершено для файла:', filePath);
-                compressedFilesCache[filePath] = outputFilePath; // Сохраняем путь к сжатому файлу
+                compressedFilesCache[filePath] = outputFilePath;
                 resolve(outputFilePath);
             })
             .run();
     });
 }
 
-// Функция для отправки реплик на удаленные серверы
-const SendReplicas = async (req, res, replicas) => {
+
+const SendReplicas = async (req, res, replicas, fileInfo) => {
     try {
         const infoArray = replicas.map(replica => ({
             fileId: replica.fileId,
             pointId: replica.pointId,
             status: 'waiting',
         }));
-
+        console.log(fileInfo)
         const newReplicas = await Replicas.bulkCreate(infoArray);
 
         if (newReplicas && newReplicas.length > 0) {
@@ -67,12 +67,17 @@ const SendReplicas = async (req, res, replicas) => {
                     console.error('File not found for replica:', replica);
                     return;
                 }
-
-                if (!compressedFilesCache[file.file]) {
-                    compressedFilesCache[file.file] = await compressVideo(file.file);
+                for(const files of fileInfo){
+                    if (!compressedFilesCache[file.file] && files.originalFilename.mimeType.startsWith('video')){
+                        compressedFilesCache[file.file] = await compressVideo(file.file);
+                    }
                 }
 
                 const compressedFilePath = compressedFilesCache[file.file];
+                if (!compressedFilePath) {
+                    console.error('Compressed file path not found for file:', file);
+                    return;
+                }
 
                 const pointPromises = replicas.map(async replica => {
                     const point = await Point.findByPk(replica.pointId);
@@ -115,14 +120,14 @@ const SendReplicas = async (req, res, replicas) => {
 
             await Promise.all(replicationPromises);
 
-            // После завершения репликации на всех серверах удаляем оригинальные файлы и обновляем статус
+
             await Promise.all(newReplicas.map(async replica => {
                 const file = await File.findByPk(replica.fileId);
-                await fs.promises.unlink(file.file); // Удаление оригинального файла
-
-                // Обновление статуса
-                await Replicas.update({ status: 'ready' }, { where: { fileId: replica.fileId } });
+                if (compressedFilesCache[file.file]) {
+                    await fs.promises.unlink(file.file);
+                }
             }));
+
 
             res.status(200).send(newReplicas);
         } else {
