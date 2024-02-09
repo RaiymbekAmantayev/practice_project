@@ -56,7 +56,7 @@ const SendReplicas = async (req, res, replicas, fileInfo) => {
             pointId: replica.pointId,
             status: 'waiting',
         }));
-        console.log(fileInfo)
+
         const newReplicas = await Replicas.bulkCreate(infoArray);
 
         if (newReplicas && newReplicas.length > 0) {
@@ -67,16 +67,18 @@ const SendReplicas = async (req, res, replicas, fileInfo) => {
                     console.error('File not found for replica:', replica);
                     return;
                 }
-                for(const files of fileInfo){
-                    if (!compressedFilesCache[file.file] && files.originalFilename.mimeType.startsWith('video')){
-                        compressedFilesCache[file.file] = await compressVideo(file.file);
-                    }
-                }
 
-                const compressedFilePath = compressedFilesCache[file.file];
-                if (!compressedFilePath) {
-                    console.error('Compressed file path not found for file:', file);
-                    return;
+                let compressedFilePath;
+
+                if (fileInfo.some(info => info.originalFilename.mimeType.includes('video'))) {
+                    if (!compressedFilesCache[file.file]) {
+                        compressedFilePath = await compressVideo(file.file);
+                        compressedFilesCache[file.file] = compressedFilePath;
+                    } else {
+                        compressedFilePath = compressedFilesCache[file.file];
+                    }
+                } else {
+                    compressedFilePath = file.file;
                 }
 
                 const pointPromises = replicas.map(async replica => {
@@ -120,14 +122,12 @@ const SendReplicas = async (req, res, replicas, fileInfo) => {
 
             await Promise.all(replicationPromises);
 
-
             await Promise.all(newReplicas.map(async replica => {
                 const file = await File.findByPk(replica.fileId);
                 if (compressedFilesCache[file.file]) {
                     await fs.promises.unlink(file.file);
                 }
             }));
-
 
             res.status(200).send(newReplicas);
         } else {
@@ -138,6 +138,7 @@ const SendReplicas = async (req, res, replicas, fileInfo) => {
         res.status(500).send({ error: 'Internal Server Error' });
     }
 };
+
 
 
 
