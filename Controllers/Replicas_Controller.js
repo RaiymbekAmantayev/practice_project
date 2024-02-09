@@ -62,62 +62,65 @@ const SendReplicas = async (req, res, replicas, fileInfo) => {
         if (newReplicas && newReplicas.length > 0) {
             const replicationPromises = newReplicas.map(async replica => {
                 const file = await File.findByPk(replica.fileId);
+                try {
+                    const stats = await fs.promises.stat(file.file);
+                    console.log(stats)
+                    const fileSizeInBytes = stats.size;
+                    const fileSizeInMB = fileSizeInBytes / (1024 * 1024);
 
-                if (!file) {
-                    console.error('File not found for replica:', replica);
-                    return;
-                }
+                    console.log('Размер файла:', fileSizeInMB, 'МБ');
 
-                let compressedFilePath;
-
-                if (fileInfo.some(info => info.originalFilename.mimeType.includes('video'))) {
-                    if (!compressedFilesCache[file.file]) {
-                        compressedFilePath = await compressVideo(file.file);
-                        compressedFilesCache[file.file] = compressedFilePath;
-                    } else {
-                        compressedFilePath = compressedFilesCache[file.file];
-                    }
-                } else {
-                    compressedFilePath = file.file;
-                }
-
-                const pointPromises = replicas.map(async replica => {
-                    const point = await Point.findByPk(replica.pointId);
-
-                    if (!point) {
-                        console.error('Point not found for replica:', replica);
-                        return;
-                    }
-
-                    try {
-                        const formData = new FormData();
-                        formData.append('documentId', file.documentId);
-                        const fileStream = fs.createReadStream(compressedFilePath);
-                        formData.append('fileId', file.id);
-                        formData.append('file', fileStream);
-
-                        const response = await axios.post(`${point.base_url}/api/file/rep`, formData, {
-                            headers: {
-                                'Content-Type': 'multipart/form-data',
-                                'Authorization': req.headers.authorization,
-                            },
-                        });
-
-                        if (response.status === 200) {
-                            console.log('File replicated successfully to:', point.base_url);
-                            const edited = {
-                                status: 'ready',
-                            };
-                            await Replicas.update(edited, { where: { fileId: replica.fileId } });
-                        } else {
-                            console.error('Error replicating file to remote server:', response.data);
+                    let compressedFilePath = file.file;
+                    if (fileInfo.some(info => info.originalFilename.mimeType.includes('video'))) {
+                        if (fileSizeInMB >= 5) {
+                            console.log('Файл больше или равен 5 МБ, будет выполнено сжатие');
+                            compressedFilePath = await compressVideo(file.file);
+                            compressedFilesCache[file.file] = compressedFilePath;
                         }
-                    } catch (error) {
-                        console.error('Error replicating file to remote server:', error);
+                    }else {
+                        compressedFilePath = file.file;
                     }
-                });
 
-                await Promise.all(pointPromises);
+                    const pointPromises = replicas.map(async replica => {
+                        const point = await Point.findByPk(replica.pointId);
+
+                        if (!point) {
+                            console.error('Point not found for replica:', replica);
+                            return;
+                        }
+
+                        try {
+                            const formData = new FormData();
+                            formData.append('documentId', file.documentId);
+                            const fileStream = fs.createReadStream(compressedFilePath);
+                            formData.append('fileId', file.id);
+                            formData.append('file', fileStream);
+
+                            const response = await axios.post(`${point.base_url}/api/file/rep`, formData, {
+                                headers: {
+                                    'Content-Type': 'multipart/form-data',
+                                    'Authorization': req.headers.authorization,
+                                },
+                            });
+
+                            if (response.status === 200) {
+                                console.log('File replicated successfully to:', point.base_url);
+                                const edited = {
+                                    status: 'ready',
+                                };
+                                await Replicas.update(edited, { where: { fileId: replica.fileId } });
+                            } else {
+                                console.error('Error replicating file to remote server:', response.data);
+                            }
+                        } catch (error) {
+                            console.error('Error replicating file to remote server:', error);
+                        }
+                    });
+
+                    await Promise.all(pointPromises);
+                } catch (error) {
+                    console.error('Ошибка при получении информации о файле:', error);
+                }
             });
 
             await Promise.all(replicationPromises);
