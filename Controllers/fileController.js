@@ -4,7 +4,7 @@ const File = db.file;
 const User = db.users
 const Point = db.points
 const Busboy = require('busboy');
-const Replicas = require('./Replicas_Controller')
+const Replicas = db.file_replicas
 const fs = require('fs');
 const path = require('path');
 const {Sequelize} = require("sequelize");
@@ -46,32 +46,38 @@ const getFieldCounter = async () => {
 
 fileIdCounter=getFieldCounter();
 
+
 const addFile = async (req, res) => {
     const user = req.user;
     let pointIdArray = [];
-    let fileInfo = []
+    let fileInfoArray = [];
+    const point = await Point.findByPk(user.pointId);
+    const folder = point.root_folder;
+
     try {
         const userId = user.id;
         req.pipe(req.busboy);
 
-        let name, documentId;
-        const fileInfoArray = [];
+        let name, documentId, compressing;
+        let expectedFileCount = 0; // Переменная для отслеживания количества файлов, которые мы ожидаем обработать
 
         req.busboy.on('field', (fieldname, val) => {
             if (fieldname === 'pointId') {
                 pointIdArray.push(parseInt(val));
             } else if (fieldname === 'documentId') {
                 documentId = val;
+            } else if (fieldname === 'compressing') {
+                compressing = val;
             }
         });
-
-        const filePromises = [];
 
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
             try {
                 fileIdCounter++;
-
-                const folderPath = path.join(config.folder, documentId, fileIdCounter.toString());
+                if (compressing == 1) {
+                    compressing = 1;
+                }
+                const folderPath = path.join(folder, documentId, fileIdCounter.toString());
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
                 }
@@ -81,18 +87,34 @@ const addFile = async (req, res) => {
 
                 file.pipe(writeStream);
                 name = originalFilename.filename;
-                fileInfo.push({originalFilename})
+                const compressed = 0
+                const mimeType = originalFilename.mimeType
                 const fileInfoWithCompression = {
                     name,
                     file: filePath,
                     userId,
                     documentId,
-                    compressed: 0
+                    compressing,
+                    mimeType,
+                    compressed
                 };
 
                 const newFile = await File.create(fileInfoWithCompression);
                 fileInfoArray.push(newFile);
 
+                if (pointIdArray.length > 0) {
+                    const replicas = [];
+                    for (const pointId of pointIdArray) {
+                        for (const fileInfo of fileInfoArray) {
+                            replicas.push({
+                                fileId: fileInfo.id,
+                                pointId,
+                                status: 'waiting'
+                            });
+                        }
+                    }
+                    await Replicas.bulkCreate(replicas);
+                }
             } catch (error) {
                 console.error('Ошибка обработки загрузки файла:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
@@ -101,29 +123,12 @@ const addFile = async (req, res) => {
 
         req.busboy.on('finish', async () => {
             try {
-
-                await Promise.all(filePromises);
                 console.log('Файлы успешно сохранены в базу данных и сжаты:', fileInfoArray);
+                ;
 
-
-                const replicas = [];
-                for (const pointId of pointIdArray) {
-                    const replicasForPoint = fileInfoArray.map(fileInfo => ({
-                        fileId: fileInfo.id,
-                        pointId,
-                        status: 'waiting',
-                    }));
-                    replicas.push(...replicasForPoint);
-                }
-
-                console.log(fileInfo)
-                const pointIds = new Set(replicas.map(replica => replica.pointId));
-                const filteredPointIdArray = pointIdArray.filter(pointId => pointIds.has(pointId));
-                if (filteredPointIdArray.length > 0) {
-                    await Replicas.SendReplicas(req, res, replicas, fileInfo);
-                }
+                res.status(200).send('Файлы успешно загружены и реплики созданы.');
             } catch (error) {
-                console.error('Ошибка при завершении:', error);
+                console.error('Ошибка при создании реплик:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
             }
         });
@@ -132,7 +137,6 @@ const addFile = async (req, res) => {
         res.status(500).send({ error: 'Внутренняя ошибка сервера' });
     }
 };
-
 
 
 

@@ -19,10 +19,13 @@ const config = {
 const compressedFilesCache = {};
 
 
-async function compressVideo(filePath) {
+const compressVideo = (filePath) => {
     return new Promise((resolve, reject) => {
         const ffmpegPath = 'C:\\Ffmpeg\\ffmpeg-2024-01-28-git-e0da916b8f-full_build\\bin\\ffmpeg.exe';
-        let ffmpeg = require("fluent-ffmpeg");
+        const ffmpeg = require("fluent-ffmpeg");
+        const path = require("path");
+        const fs = require("fs");
+
         ffmpeg.setFfmpegPath(ffmpegPath);
 
         console.log('Начало сжатия для файла:', filePath);
@@ -39,114 +42,106 @@ async function compressVideo(filePath) {
                 console.error('Ошибка при сжатии:', err);
                 reject(err);
             })
-            .on('end', function () {
+            .on('end', async function () {
                 console.log('Сжатие завершено для файла:', filePath);
-                compressedFilesCache[filePath] = outputFilePath;
-                resolve(outputFilePath);
-            })
-            .run();
-    });
-}
 
-
-const SendReplicas = async (req, res, replicas, fileInfo) => {
-    try {
-        const infoArray = replicas.map(replica => ({
-            fileId: replica.fileId,
-            pointId: replica.pointId,
-            status: 'waiting',
-        }));
-
-        const newReplicas = await Replicas.bulkCreate(infoArray);
-
-        if (newReplicas && newReplicas.length > 0) {
-            const replicationPromises = newReplicas.map(async replica => {
-                const file = await File.findByPk(replica.fileId);
                 try {
-                    const stats = await fs.promises.stat(file.file);
-                    console.log(stats)
-                    const fileSizeInBytes = stats.size;
-                    const fileSizeInMB = fileSizeInBytes / (1024 * 1024);
+                    // Обновление записи в базе данных для указания, что файл сжат
+                    await File.update({ compressed: 1 }, { where: { file: filePath } });
+                    console.log('Запись в базе данных обновлена для файла:', filePath);
 
-                    console.log('Размер файла:', fileSizeInMB, 'МБ');
-
-                    let compressedFilePath = file.file;
-                    if (fileInfo.some(info => info.originalFilename.mimeType.includes('video'))) {
-                        if (fileSizeInMB >= 5) {
-                            console.log('Файл больше или равен 5 МБ, будет выполнено сжатие');
-                            compressedFilePath = await compressVideo(file.file);
-                            compressedFilesCache[file.file] = compressedFilePath;
-                        }
-                    }else {
-                        compressedFilePath = file.file;
-                    }
-
-                    const pointPromises = replicas.map(async replica => {
-                        const point = await Point.findByPk(replica.pointId);
-
-                        if (!point) {
-                            console.error('Point not found for replica:', replica);
-                            return;
-                        }
-
-                        try {
-                            const formData = new FormData();
-                            formData.append('documentId', file.documentId);
-                            const fileStream = fs.createReadStream(compressedFilePath);
-                            formData.append('fileId', file.id);
-                            formData.append('file', fileStream);
-
-                            const response = await axios.post(`${point.base_url}/api/file/rep`, formData, {
-                                headers: {
-                                    'Content-Type': 'multipart/form-data',
-                                    'Authorization': req.headers.authorization,
-                                },
-                            });
-
-                            if (response.status === 200) {
-                                console.log('File replicated successfully to:', point.base_url);
-                                const edited = {
-                                    status: 'ready',
-                                };
-                                await Replicas.update(edited, { where: { fileId: replica.fileId } });
-                            } else {
-                                console.error('Error replicating file to remote server:', response.data);
-                            }
-                        } catch (error) {
-                            console.error('Error replicating file to remote server:', error);
+                    // Удаляем оригинальный файл
+                    await fs.unlink(filePath, (err) => {
+                        if (err) {
+                            console.error('Ошибка при удалении оригинального файла:', err);
+                            reject(err);
+                        } else {
+                            console.log('Оригинальный файл удален:', filePath);
                         }
                     });
 
-                    await Promise.all(pointPromises);
+                    // Убираем расширение у сжатого файла
+                    const outputFileNameWithoutExtension = path.join(path.dirname(filePath), baseName);
+                    fs.rename(outputFilePath, outputFileNameWithoutExtension, (err) => {
+                        if (err) {
+                            console.error('Ошибка при удалении расширения у сжатого файла:', err);
+                            reject(err);
+                        } else {
+                            console.log('Расширение у сжатого файла удалено:', outputFileNameWithoutExtension);
+                            resolve(outputFileNameWithoutExtension);
+                        }
+                    });
                 } catch (error) {
-                    console.error('Ошибка при получении информации о файле:', error);
+                    console.error('Ошибка при удалении файла или обновлении записи в базе данных:', error);
+                    reject(error);
                 }
+            })
+            .run();
+    });
+};
+
+const processReplication = async () => {
+    try {
+        // Получение реплик со статусом "waiting" из базы данных
+        const replicas = await Replicas.findAll({ where: { status: 'waiting' } });
+
+        if (replicas.length === 0) {
+            console.log('Нет файлов для репликации со статусом "waiting"');
+            return;
+        }
+
+        for (const replica of replicas) {
+            // Получение информации о файле из базы данных по fileId
+            const file = await File.findByPk(replica.fileId);
+            const point = await Point.findByPk(replica.pointId);
+
+            if (!file) {
+                console.error('Файл с ID', replica.fileId, 'не найден в базе данных');
+                continue; // Пропуск этой реплики и переход к следующей
+            }
+
+            let compressedFilePath = file.file;
+            if (file.compressing == 1 && file.mimeType.includes('video') && file.compressed == 0) {
+                compressedFilePath = await compressVideo(file.file);
+                compressedFilesCache[file.file] = compressedFilePath;
+                console.log("compressing requires")
+            }
+
+            const formData = new FormData();
+            formData.append('documentId', file.documentId);
+            const fileStream = fs.createReadStream(compressedFilePath);
+            formData.append('fileId', file.id);
+            formData.append('file', fileStream);
+
+            const response = await axios.post(`${point.base_url}/api/file/rep`, formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data',
+                },
             });
 
-            await Promise.all(replicationPromises);
-
-            await Promise.all(newReplicas.map(async replica => {
-                const file = await File.findByPk(replica.fileId);
-                if (compressedFilesCache[file.file]) {
-                    await fs.promises.unlink(file.file);
-                }
-            }));
-
-            res.status(200).send(newReplicas);
-        } else {
-            res.status(500).send({ error: 'Error creating replicas' });
+            if (response.status === 200) {
+                await Replicas.update({ status: 'ready' }, { where: { id: replica.id } });
+                console.log('Файл успешно реплицирован:', file.name);
+            }
         }
+
+        console.log('Репликация файлов успешно обработана');
     } catch (error) {
-        console.error('Error in SendReplicas:', error);
-        res.status(500).send({ error: 'Internal Server Error' });
+        console.error('Ошибка в processReplication:', error);
     }
 };
 
+// Функция для запуска процесса обработки репликации с интервалом
+const startReplicationProcess = () => {
+    console.log('Запуск процесса обработки репликации файлов...');
+    // Запуск процесса обработки репликации файлов
+    processReplication();
+    // Установка задержки перед следующим запуском процесса (в данном случае каждые 10 минут)
+    setTimeout(startReplicationProcess, 15000); // 600000 миллисекунд = 10 минут
+};
 
-
-
-
-
+// Запуск первого процесса обработки репликации
+startReplicationProcess();
 
 
 
@@ -212,7 +207,6 @@ const ShowByDocId = async (req, res) => {
 };
 
 module.exports={
-    SendReplicas,
     Show,
     ShowByDocId,
     Replicas

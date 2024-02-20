@@ -20,10 +20,18 @@ module.exports = (sequelize, DataTypes) => {
             type: DataTypes.STRING,
             allowNull: true,
         },
+        compressing:{
+            type: DataTypes.INTEGER,
+            allowNull: true,
+        },
+        mimeType:{
+            type: DataTypes.STRING,
+            allowNull: true,
+        },
         compressed:{
             type: DataTypes.INTEGER,
             allowNull: true,
-        }
+        },
     });
     return File;
 };
