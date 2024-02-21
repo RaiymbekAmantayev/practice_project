@@ -59,14 +59,14 @@ const addFile = async (req, res) => {
         req.pipe(req.busboy);
 
         let name, documentId, compressing;
-        let expectedFileCount = 0; // Переменная для отслеживания количества файлов, которые мы ожидаем обработать
-
         req.busboy.on('field', (fieldname, val) => {
             if (fieldname === 'pointId') {
                 pointIdArray.push(parseInt(val));
-            } else if (fieldname === 'documentId') {
+            }
+            if (fieldname === 'documentId') {
                 documentId = val;
-            } else if (fieldname === 'compressing') {
+            }
+            if (fieldname === 'compressing') {
                 compressing = val;
             }
         });

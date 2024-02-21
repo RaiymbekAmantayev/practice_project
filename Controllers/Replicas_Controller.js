@@ -131,21 +131,49 @@ const processReplication = async () => {
     }
 };
 
-// Функция для запуска процесса обработки репликации с интервалом
 const startReplicationProcess = () => {
     console.log('Запуск процесса обработки репликации файлов...');
-    // Запуск процесса обработки репликации файлов
     processReplication();
-    // Установка задержки перед следующим запуском процесса (в данном случае каждые 10 минут)
-    setTimeout(startReplicationProcess, 15000); // 600000 миллисекунд = 10 минут
+    setTimeout(startReplicationProcess, 15000);
 };
 
-// Запуск первого процесса обработки репликации
 startReplicationProcess();
 
 
+const compressLocalFiles = async ()=>{
+    try{
+        const files = await File.findAll({where:{compressing:1, compressed: 0}})
+        if(files.length === 0){
+            console.log('нет файлы которые нужно сжать');
+            return;
+        }
+        for(const file of files){
+            const fileId = file.id
+            const replicFile = Replicas.findAll({where:{fileId: fileId}})
+            if(replicFile.length > 0 ){
+                console.log('Файлы для сжатие уже существуют в репликации');
+                return;
+            }
+            let compressedFilePath = file.file;
+            if (file.compressing == 1 && file.mimeType.includes('video')) {
+                compressedFilePath = await compressVideo(file.file);
+                compressedFilesCache[file.file] = compressedFilePath;
+            }
+            console.log(compressedFilePath, "удачно сжался")
+        }
+    }catch (error){
+        console.log("error ",error)
+    }
+}
+
+const startCompressing = () => {
+    console.log('Запуск процесса обработки сжатие локальных файлов...');
+    compressLocalFiles();
+    setTimeout(startCompressing, 5000);
+};
 
 
+startCompressing();
 
 
 
