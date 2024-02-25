@@ -51,14 +51,16 @@ const addFile = async (req, res) => {
     const user = req.user;
     let pointIdArray = [];
     let fileInfoArray = [];
+    let compressArray = []
     const point = await Point.findByPk(user.pointId);
     const folder = point.root_folder;
+
 
     try {
         const userId = user.id;
         req.pipe(req.busboy);
 
-        let name, documentId, compressing;
+        let name, documentId
         req.busboy.on('field', (fieldname, val) => {
             if (fieldname === 'pointId') {
                 pointIdArray.push(parseInt(val));
@@ -67,16 +69,16 @@ const addFile = async (req, res) => {
                 documentId = val;
             }
             if (fieldname === 'compressing') {
-                compressing = val;
+                compressArray.push(parseInt(val));
             }
         });
 
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
             try {
                 fileIdCounter++;
-                if (compressing == 1) {
-                    compressing = 1;
-                }
+                // if (compressing == 1) {
+                //     compressing = 1;
+                // }
                 const folderPath = path.join(folder, documentId, fileIdCounter.toString());
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
@@ -94,13 +96,46 @@ const addFile = async (req, res) => {
                     file: filePath,
                     userId,
                     documentId,
-                    compressing,
+                    compressing:0,
                     mimeType,
                     compressed
                 };
 
                 const newFile = await File.create(fileInfoWithCompression);
+                console.log("new file is: ",newFile)
                 fileInfoArray.push(newFile);
+                console.log(compressArray)
+
+
+                const updatedFiles = new Set();
+                const elementsofArray = new Set();
+
+                for (const fileInfo of fileInfoArray) {
+                    const id = fileInfo.dataValues.id;
+                    console.log("ID файла:", id);
+
+                    for (const fileComp of compressArray) {
+                        const comp = parseInt(fileComp);
+
+                        if (!updatedFiles.has(id) && !elementsofArray.has(comp)) {
+                            const response = await File.update({ compressing: comp }, { where: { id: id } });
+                            console.log(response);
+                            if (response[0] === 1) {
+                                console.log("Файл успешно обновлен");
+                                updatedFiles.add(id);
+                                elementsofArray.add(comp);
+                                break; // Прерываем внутренний цикл, чтобы не обновлять файл повторно
+                            } else {
+                                console.log("Ошибка при обновлении файла");
+                            }
+                        } else {
+                            console.log("Файл уже был обновлен или значение компрессии уже использовалось");
+                            continue;
+                        }
+                    }
+                }
+
+
 
                 if (pointIdArray.length > 0) {
                     const replicas = [];
@@ -124,7 +159,7 @@ const addFile = async (req, res) => {
         req.busboy.on('finish', async () => {
             try {
                 console.log('Файлы успешно сохранены в базу данных и сжаты:', fileInfoArray);
-                ;
+
 
                 res.status(200).send('Файлы успешно загружены и реплики созданы.');
             } catch (error) {
@@ -137,6 +172,8 @@ const addFile = async (req, res) => {
         res.status(500).send({ error: 'Внутренняя ошибка сервера' });
     }
 };
+
+
 
 
 
@@ -225,8 +262,6 @@ const getAllLocalFiles = async (req, res) => {
                 },
             },
         });
-
-        // Обработка найденных файлов
         res.send( localFiles );
     } catch (error) {
         console.error('Ошибка при получении данных:', error);

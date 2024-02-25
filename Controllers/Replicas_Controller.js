@@ -82,22 +82,23 @@ const compressVideo = (filePath) => {
 
 const processReplication = async () => {
     try {
-        // Получение реплик со статусом "waiting" из базы данных
-        const replicas = await Replicas.findAll({ where: { status: 'waiting' } });
+        const replicas = await Replicas.findAll({
+            where: { status: 'waiting' },
+            limit: 10 // Ваш лимит здесь
+        });
 
-        if (replicas.length === 0) {
+        if (!replicas.length) {
             console.log('Нет файлов для репликации со статусом "waiting"');
             return;
         }
 
         for (const replica of replicas) {
-            // Получение информации о файле из базы данных по fileId
             const file = await File.findByPk(replica.fileId);
             const point = await Point.findByPk(replica.pointId);
 
             if (!file) {
                 console.error('Файл с ID', replica.fileId, 'не найден в базе данных');
-                continue; // Пропуск этой реплики и переход к следующей
+                continue;
             }
 
             let compressedFilePath = file.file;
@@ -131,9 +132,9 @@ const processReplication = async () => {
     }
 };
 
-const startReplicationProcess = () => {
+const startReplicationProcess = async () => {
     console.log('Запуск процесса обработки репликации файлов...');
-    processReplication();
+    await processReplication();
     setTimeout(startReplicationProcess, 15000);
 };
 
@@ -143,7 +144,7 @@ startReplicationProcess();
 const compressLocalFiles = async ()=>{
     try{
         const files = await File.findAll({where:{compressing:1, compressed: 0}})
-        if(files.length === 0){
+        if(!files.length){
             console.log('нет файлы которые нужно сжать');
             return;
         }
@@ -166,12 +167,12 @@ const compressLocalFiles = async ()=>{
     }
 }
 
-const startCompressing = () => {
+const startCompressing = async () => {
     console.log('Запуск процесса обработки сжатие локальных файлов...');
-    compressLocalFiles();
+    await compressLocalFiles();
+
     setTimeout(startCompressing, 5000);
 };
-
 
 startCompressing();
 
