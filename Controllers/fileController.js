@@ -1,6 +1,5 @@
 const db = require("../models");
 const File = db.file;
-// const {compressVideo} = require("/compressVideo.js");
 const User = db.users
 const Point = db.points
 const Busboy = require('busboy');
@@ -8,22 +7,13 @@ const Replicas = db.file_replicas
 const fs = require('fs');
 const path = require('path');
 const {Sequelize} = require("sequelize");
-const { exec } = require('child_process');
-const ffmpeg = require("fluent-ffmpeg");
 const axios = require("axios");
+const FormData = require("form-data");
 const fsPromises = require('fs').promises
 const config = {
     port: process.env.PORT,
     folder : process.env.ROOT_FOLDER
 }
-
-
-
-
-
-
-
-
 
 const LastId = async () => {
     try {
@@ -55,7 +45,6 @@ const addFile = async (req, res) => {
     const point = await Point.findByPk(user.pointId);
     const folder = point.root_folder;
 
-
     try {
         const userId = user.id;
         req.pipe(req.busboy);
@@ -68,17 +57,14 @@ const addFile = async (req, res) => {
             if (fieldname === 'documentId') {
                 documentId = val;
             }
-            if (fieldname === 'compressing') {
-                compressArray.push(parseInt(val));
-            }
+            // if (fieldname === 'compressing') {
+            //     compressArray.push(parseInt(val));
+            // }
         });
 
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
             try {
                 fileIdCounter++;
-                // if (compressing == 1) {
-                //     compressing = 1;
-                // }
                 const folderPath = path.join(folder, documentId, fileIdCounter.toString());
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
@@ -89,66 +75,100 @@ const addFile = async (req, res) => {
 
                 file.pipe(writeStream);
                 name = originalFilename.filename;
+
                 const compressed = 0
                 const mimeType = originalFilename.mimeType
+
+                let compValues = req.body.comp;
+                // if (compValues && typeof compValues === 'string') {
+                //     compValues = compValues.split(',').map(Number);
+                //     console.log("compressing values are: ", compValues);
+                // } else {
+                //     console.error('Ошибка: значение comp не определено или не является строкой');
+                // }
+
                 const fileInfoWithCompression = {
                     name,
                     file: filePath,
                     userId,
                     documentId,
-                    compressing:0,
+                    compressing: compValues,
                     mimeType,
                     compressed
                 };
-
                 const newFile = await File.create(fileInfoWithCompression);
-                console.log("new file is: ",newFile)
+                console.log("new file is: ", newFile);
                 fileInfoArray.push(newFile);
-                console.log(compressArray)
 
-
-                const updatedFiles = new Set();
-                const elementsofArray = new Set();
-
-                for (const fileInfo of fileInfoArray) {
-                    const id = fileInfo.dataValues.id;
-                    console.log("ID файла:", id);
-
-                    for (const fileComp of compressArray) {
-                        const comp = parseInt(fileComp);
-
-                        if (!updatedFiles.has(id) && !elementsofArray.has(comp)) {
-                            const response = await File.update({ compressing: comp }, { where: { id: id } });
-                            console.log(response);
-                            if (response[0] === 1) {
-                                console.log("Файл успешно обновлен");
-                                updatedFiles.add(id);
-                                elementsofArray.add(comp);
-                                break; // Прерываем внутренний цикл, чтобы не обновлять файл повторно
-                            } else {
-                                console.log("Ошибка при обновлении файла");
-                            }
-                        } else {
-                            console.log("Файл уже был обновлен или значение компрессии уже использовалось");
-                            continue;
-                        }
-                    }
-                }
-
-
-
+                // const updatedFiles = new Set();
+                // const elementsofArray = new Set();
+                //
+                // for (const fileInfo of fileInfoArray) {
+                //     const id = fileInfo.dataValues.id;
+                //     console.log("ID файла:", id);
+                //
+                //     for (const fileComp of compressArray) {
+                //         const comp = parseInt(fileComp);
+                //
+                //         if (!updatedFiles.has(id) && !elementsofArray.has(comp)) {
+                //             const response = await File.update({ compressing: comp }, { where: { id: id } });
+                //             console.log(response);
+                //             if (response[0] === 1) {
+                //                 console.log("Файл успешно обновлен");
+                //                 updatedFiles.add(id);
+                //                 elementsofArray.add(comp);
+                //                 break;
+                //             } else {
+                //                 console.log("Ошибка при обновлении файла");
+                //             }
+                //         } else {
+                //             console.log("Файл уже был обновлен или значение компрессии уже использовалось");
+                //             break
+                //         }
+                //     }
+                // }
                 if (pointIdArray.length > 0) {
                     const replicas = [];
                     for (const pointId of pointIdArray) {
                         for (const fileInfo of fileInfoArray) {
-                            replicas.push({
-                                fileId: fileInfo.id,
-                                pointId,
-                                status: 'waiting'
-                            });
+                                replicas.push({
+                                    fileId: fileInfo.id,
+                                    pointId,
+                                    status: 'waiting'
+                                });
                         }
                     }
                     await Replicas.bulkCreate(replicas);
+                }
+
+                const allProcessed = fileInfoArray.every(file => file.processed);
+                if (allProcessed) {
+                    const formData = new FormData();
+                    formData.append('documentId', documentId);
+                    for (const pointId of pointIdArray) {
+                        formData.append('pointId', pointId);
+                        console.log("pointId is", pointId);
+                    }
+                    let comp;
+                    for (const compressing of compressArray) {
+                        formData.append('compressing', compressing)
+                        comp = compressing
+                        console.log("compressing is: ", comp)
+                    }
+                    console.log(comp)
+                    const fileStream = fs.createReadStream(filePath)
+                    formData.append('file', fileStream);
+                    // formData.append('fileId', fileIdCounter);
+
+                    const response = await axios.post(`${point.base_url}/api/file/rep`, formData, {
+                        headers: {
+                            'Content-Type': 'multipart/form-data',
+                            'Authorization': req.headers.authorization,
+                        },
+                    });
+                    if (response.status === 200) {
+                        console.log("success")
+                    }
                 }
             } catch (error) {
                 console.error('Ошибка обработки загрузки файла:', error);
@@ -160,8 +180,12 @@ const addFile = async (req, res) => {
             try {
                 console.log('Файлы успешно сохранены в базу данных и сжаты:', fileInfoArray);
 
-
-                res.status(200).send('Файлы успешно загружены и реплики созданы.');
+                const allProcessed = fileInfoArray.every(file => file.processed);
+                if (allProcessed) {
+                    res.status(200).send('Файлы успешно загружены и реплики созданы.');
+                } else {
+                    console.log('Все файлы еще не обработаны.');
+                }
             } catch (error) {
                 console.error('Ошибка при создании реплик:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
@@ -198,7 +222,6 @@ const addFileWithoutDb = async (req, res) => {
         });
 
         const filePromises = [];
-
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
             try {
                 console.log('name:', name);
@@ -206,23 +229,27 @@ const addFileWithoutDb = async (req, res) => {
                 console.log('fileIds:', fileIds); // Используйте переданный массив id файлов
 
                 const fileId = fileIds.shift();
-
+                console.log(config.folder)
+                console.log(documentId)
+                console.log(fileId)
                 const folderPath = path.join(config.folder, documentId, fileId.toString());
+
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
                 }
-
-
 
                 const filePath = path.join(folderPath, fileId.toString());
                 const writeStream = fs.createWriteStream(filePath);
 
                 file.pipe(writeStream);
-                name = originalFilename.filename;
+                let filename = '';
+                if (originalFilename && originalFilename.filename) {
+                    filename = originalFilename.filename;
+                }
                 filePromises.push(
                     new Promise((resolve, reject) => {
                         writeStream.on('finish', () => {
-                            resolve({ fileId, filePath });
+                            resolve({ fileId, filePath, filename });
                         });
                         writeStream.on('error', reject);
                     })
@@ -250,6 +277,7 @@ const addFileWithoutDb = async (req, res) => {
         res.status(500).send({ error: 'Internal Server Error' });
     }
 };
+
 
 
 
@@ -342,5 +370,5 @@ module.exports = {
     LastFile,
     addFileWithoutDb,
     getFileById,
-
+    // sendFileByHttp
 };

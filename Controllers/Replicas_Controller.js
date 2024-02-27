@@ -80,11 +80,12 @@ const compressVideo = (filePath) => {
     });
 };
 
+
 const processReplication = async () => {
     try {
         const replicas = await Replicas.findAll({
             where: { status: 'waiting' },
-            limit: 10 // Ваш лимит здесь
+            limit: 10
         });
 
         if (!replicas.length) {
