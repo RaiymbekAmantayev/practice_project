@@ -8,7 +8,7 @@ const Replicas = db.file_replicas;
 const File = db.file;
 const Point = db.points;
 const { Op } = require("sequelize");
-
+const Compressing = db.compressing
 const ffmpeg = require("fluent-ffmpeg");
 const {promises: fsPromises} = require("fs");
 
@@ -103,7 +103,8 @@ const processReplication = async () => {
             }
 
             let compressedFilePath = file.file;
-            if (file.compressing == 1 && file.mimeType.includes('video') && file.compressed == 0) {
+            const compressing = await Compressing.findOne({where:{fileId:file.id}})
+            if (compressing.compressingStatus == 1 && file.mimeType.includes('video') && file.compressed == 0) {
                 compressedFilePath = await compressVideo(file.file);
                 compressedFilesCache[file.file] = compressedFilePath;
                 console.log("compressing requires")

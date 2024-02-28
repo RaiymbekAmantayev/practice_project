@@ -3,6 +3,7 @@ const File = db.file;
 const User = db.users
 const Point = db.points
 const Busboy = require('busboy');
+const Compressing = db.compressing
 const Replicas = db.file_replicas
 const fs = require('fs');
 const path = require('path');
@@ -57,9 +58,9 @@ const addFile = async (req, res) => {
             if (fieldname === 'documentId') {
                 documentId = val;
             }
-            // if (fieldname === 'compressing') {
-            //     compressArray.push(parseInt(val));
-            // }
+            if (fieldname === 'compressing') {
+                compressArray.push(parseInt(val));
+            }
         });
 
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
@@ -79,20 +80,12 @@ const addFile = async (req, res) => {
                 const compressed = 0
                 const mimeType = originalFilename.mimeType
 
-                let compValues = req.body.comp;
-                // if (compValues && typeof compValues === 'string') {
-                //     compValues = compValues.split(',').map(Number);
-                //     console.log("compressing values are: ", compValues);
-                // } else {
-                //     console.error('Ошибка: значение comp не определено или не является строкой');
-                // }
 
                 const fileInfoWithCompression = {
                     name,
                     file: filePath,
                     userId,
                     documentId,
-                    compressing: compValues,
                     mimeType,
                     compressed
                 };
@@ -100,33 +93,39 @@ const addFile = async (req, res) => {
                 console.log("new file is: ", newFile);
                 fileInfoArray.push(newFile);
 
-                // const updatedFiles = new Set();
-                // const elementsofArray = new Set();
-                //
-                // for (const fileInfo of fileInfoArray) {
-                //     const id = fileInfo.dataValues.id;
-                //     console.log("ID файла:", id);
-                //
-                //     for (const fileComp of compressArray) {
-                //         const comp = parseInt(fileComp);
-                //
-                //         if (!updatedFiles.has(id) && !elementsofArray.has(comp)) {
-                //             const response = await File.update({ compressing: comp }, { where: { id: id } });
-                //             console.log(response);
-                //             if (response[0] === 1) {
-                //                 console.log("Файл успешно обновлен");
-                //                 updatedFiles.add(id);
-                //                 elementsofArray.add(comp);
-                //                 break;
-                //             } else {
-                //                 console.log("Ошибка при обновлении файла");
-                //             }
-                //         } else {
-                //             console.log("Файл уже был обновлен или значение компрессии уже использовалось");
-                //             break
-                //         }
-                //     }
-                // }
+
+                if (compressArray.length > 0) {
+                    for (const fileInfo of fileInfoArray) {
+                        const index = fileInfoArray.indexOf(fileInfo);
+                        if (index === -1) {
+                            continue;
+                        }
+                        const comp = compressArray[index];
+
+                        try {
+                            const existingCompress = await Compressing.findOne({
+                                where: {
+                                    fileId: fileInfo.id,
+                                    compressingStatus: comp
+                                }
+                            });
+
+                            if (!existingCompress) {
+                                await Compressing.create({
+                                    fileId: fileInfo.id,
+                                    compressingStatus: comp
+                                });
+                            } else {
+                                console.log("Record already exists for fileId: ", fileInfo.id, " and compressingStatus: ", comp);
+                            }
+                        } catch (error) {
+                            console.error(`Failed to create compressing record: ${error.message}`);
+                            continue;
+                        }
+                    }
+                }
+
+
                 if (pointIdArray.length > 0) {
                     const replicas = [];
                     for (const pointId of pointIdArray) {

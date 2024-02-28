@@ -33,7 +33,7 @@ db.points = require("./points")(sequelize,DataTypes)
 db.users =require("./users")(sequelize, DataTypes)
 db.file = require("./file")(sequelize,DataTypes)
 db.file_replicas = require("./file_replicas")(sequelize,DataTypes)
-
+db.compressing = require("./compressFiles")(sequelize, DataTypes)
 db.sequelize.sync({ force: false })
     .then(() => {
         console.log('yes re-sync done!')
@@ -62,6 +62,7 @@ db.file.belongsTo(db.users, {
     as: 'user'
 });
 
+
 // replicas
 // В модели file
 db.file.hasMany(db.file_replicas, { foreignKey: 'fileId', as: 'file_replicas' });
@@ -70,4 +71,11 @@ db.file_replicas.belongsTo(db.file, { foreignKey: 'fileId', as: 'files' });
 // points
 db.points.hasMany(db.file_replicas, {foreignKey: 'pointId', as: 'file_replicas'});
 db.file_replicas.belongsTo(db.points, {foreignKey: 'pointId', as: 'points'});
+
+
+
+// In your association definitions
+db.file.hasMany(db.compressing, { foreignKey: 'fileId', as: 'compressingEntries' }); // Changed alias to avoid collision
+db.compressing.belongsTo(db.file, { foreignKey: 'fileId', as: 'file' }); // Changed alias to avoid collision
+
 module.exports = db;
