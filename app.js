@@ -27,11 +27,13 @@ const PointRouter = require("./router/point_router")
 const UserRouter = require("./router/user-router")
 const FileRouter = require("./router/file-router")
 const ReplicaseRouter = require('./router/replicase-router')
+const MasterRouter = require('./router/masterRouter')
 
 app.use("/api/point", PointRouter);
 app.use("/api/user", UserRouter)
 app.use("/api/file", FileRouter)
 app.use("/api/rep", ReplicaseRouter)
+app.use("/api/master",MasterRouter)
 
 app.listen(Port.Port, () => {
     console.log('Server running on port http://localhost:' + Port.Port);

@@ -104,12 +104,11 @@ const processReplication = async () => {
 
             let compressedFilePath = file.file;
             const compressing = await Compressing.findOne({where:{fileId:file.id}})
-            if (compressing.compressingStatus == 1 && file.mimeType.includes('video') && file.compressed == 0) {
+            if (compressing && compressing.compressingStatus === 1 && file.mimeType.includes('video') && file.compressed === 0) {
                 compressedFilePath = await compressVideo(file.file);
                 compressedFilesCache[file.file] = compressedFilePath;
                 console.log("compressing requires")
             }
-
             const formData = new FormData();
             formData.append('documentId', file.documentId);
             const fileStream = fs.createReadStream(compressedFilePath);
@@ -143,40 +142,42 @@ const startReplicationProcess = async () => {
 startReplicationProcess();
 
 
-const compressLocalFiles = async ()=>{
-    try{
-        const files = await File.findAll({where:{compressing:1, compressed: 0}})
-        if(!files.length){
-            console.log('нет файлы которые нужно сжать');
-            return;
-        }
-        for(const file of files){
-            const fileId = file.id
-            const replicFile = Replicas.findAll({where:{fileId: fileId}})
-            if(replicFile.length > 0 ){
-                console.log('Файлы для сжатие уже существуют в репликации');
-                return;
-            }
-            let compressedFilePath = file.file;
-            if (file.compressing == 1 && file.mimeType.includes('video')) {
-                compressedFilePath = await compressVideo(file.file);
-                compressedFilesCache[file.file] = compressedFilePath;
-            }
-            console.log(compressedFilePath, "удачно сжался")
-        }
-    }catch (error){
-        console.log("error ",error)
-    }
-}
+// const compressLocalFiles = async ()=>{
+//     try{
+//         const compressing = await Compressing.findOne({where:{compressingStatus:1}})
+//         const files = await File.findOne({where:{compressed: 0}})
+//         if(!files.length && !compressing.length){
+//             console.log('нет файлы которые нужно сжать');
+//             return;
+//         }
+//         for(const file of files){
+//             const fileId = file.id
+//             const replicFile = Replicas.findAll({where:{fileId: fileId}})
+//             if(replicFile.length > 0 ){
+//                 console.log('Файлы для сжатие уже существуют в репликации');
+//                 return;
+//             }
+//             let compressedFilePath = file.file;
+//             const compressing = await Compressing.findOne({where:{fileId:file.id}})
+//             if (compressing.compressingStatus == 1 && file.mimeType.includes('video')) {
+//                 compressedFilePath = await compressVideo(file.file);
+//                 compressedFilesCache[file.file] = compressedFilePath;
+//             }
+//             console.log(compressedFilePath, "удачно сжался")
+//         }
+//     }catch (error){
+//         console.log("error ",error)
+//     }
+// }
+//
+// const startCompressing = async () => {
+//     console.log('Запуск процесса обработки сжатие локальных файлов...');
+//     await compressLocalFiles();
+//
+//     setTimeout(startCompressing, 5000);
+// };
 
-const startCompressing = async () => {
-    console.log('Запуск процесса обработки сжатие локальных файлов...');
-    await compressLocalFiles();
-
-    setTimeout(startCompressing, 5000);
-};
-
-startCompressing();
+// startCompressing();
 
 
 

@@ -43,8 +43,7 @@ const addFile = async (req, res) => {
     let pointIdArray = [];
     let fileInfoArray = [];
     let compressArray = []
-    const point = await Point.findByPk(user.pointId);
-    const folder = point.root_folder;
+    const point = await Point.findOne({where:{code:"master"}});
 
     try {
         const userId = user.id;
@@ -66,33 +65,41 @@ const addFile = async (req, res) => {
         req.busboy.on('file', async (fieldname, file, originalFilename, encoding, mimetype) => {
             try {
                 fileIdCounter++;
-                const folderPath = path.join(folder, documentId, fileIdCounter.toString());
+                const folderPath = path.join(config.folder, documentId, fileIdCounter.toString());
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
                 }
-
                 const filePath = path.join(folderPath, fileIdCounter.toString());
                 const writeStream = fs.createWriteStream(filePath);
 
                 file.pipe(writeStream);
                 name = originalFilename.filename;
-
-                const compressed = 0
                 const mimeType = originalFilename.mimeType
 
-
                 const fileInfoWithCompression = {
+                    id: fileIdCounter,
                     name,
                     file: filePath,
-                    userId,
                     documentId,
                     mimeType,
-                    compressed
                 };
-                const newFile = await File.create(fileInfoWithCompression);
-                console.log("new file is: ", newFile);
-                fileInfoArray.push(newFile);
+                fileInfoArray.push(fileInfoWithCompression);
 
+                const response = await axios.post(`${point.base_url}/api/master/file/add`,
+                    {'name': name,
+                        'file': filePath,
+                        'userId': userId,
+                        'documentId': documentId,
+                        'mimeType':mimeType
+                    }, {
+                    headers: {
+                        'Authorization': req.headers.authorization,
+                    },
+                });
+
+                if (response.status === 200) {
+                    console.log("success");
+                }
 
                 if (compressArray.length > 0) {
                     for (const fileInfo of fileInfoArray) {
@@ -103,70 +110,52 @@ const addFile = async (req, res) => {
                         const comp = compressArray[index];
 
                         try {
-                            const existingCompress = await Compressing.findOne({
-                                where: {
-                                    fileId: fileInfo.id,
-                                    compressingStatus: comp
-                                }
+                            const existingCompress = await axios.get(`${point.base_url}/api/master/file/compress/get?fileId=${fileInfo.id}&compressingStatus=${comp}`,{
+                                headers: {
+                                    'Authorization': req.headers.authorization,
+                                },
                             });
+                            console.log(existingCompress.data)
+                            if (existingCompress.data === "file not found") {
+                                console.log("запись не найдена");
 
-                            if (!existingCompress) {
-                                await Compressing.create({
-                                    fileId: fileInfo.id,
-                                    compressingStatus: comp
+                                const compressing = await axios.post(`${point.base_url}/api/master/file/compress/add`, {
+                                    'fileId': fileInfo.id,
+                                    'compressingStatus': comp
+                                }, {
+                                    headers: {
+                                        'Authorization': req.headers.authorization,
+                                    },
                                 });
+
+                                if (compressing.status === 200) {
+                                    console.log("success");
+                                }
                             } else {
-                                console.log("Record already exists for fileId: ", fileInfo.id, " and compressingStatus: ", comp);
+                                console.log("запись найдена");
                             }
+
                         } catch (error) {
                             console.error(`Failed to create compressing record: ${error.message}`);
                             continue;
                         }
                     }
                 }
-
-
                 if (pointIdArray.length > 0) {
-                    const replicas = [];
                     for (const pointId of pointIdArray) {
                         for (const fileInfo of fileInfoArray) {
-                                replicas.push({
-                                    fileId: fileInfo.id,
-                                    pointId,
-                                    status: 'waiting'
-                                });
+                            const replicating = await axios.post(`${point.base_url}/api/master/rep/add`, {
+                                'fileId': fileInfo.id,
+                                'pointId': pointId
+                            }, {
+                                headers: {
+                                    'Authorization': req.headers.authorization,
+                                },
+                            })
+                            if(replicating.status === 200){
+                                console.log("success")
+                            }
                         }
-                    }
-                    await Replicas.bulkCreate(replicas);
-                }
-
-                const allProcessed = fileInfoArray.every(file => file.processed);
-                if (allProcessed) {
-                    const formData = new FormData();
-                    formData.append('documentId', documentId);
-                    for (const pointId of pointIdArray) {
-                        formData.append('pointId', pointId);
-                        console.log("pointId is", pointId);
-                    }
-                    let comp;
-                    for (const compressing of compressArray) {
-                        formData.append('compressing', compressing)
-                        comp = compressing
-                        console.log("compressing is: ", comp)
-                    }
-                    console.log(comp)
-                    const fileStream = fs.createReadStream(filePath)
-                    formData.append('file', fileStream);
-                    // formData.append('fileId', fileIdCounter);
-
-                    const response = await axios.post(`${point.base_url}/api/file/rep`, formData, {
-                        headers: {
-                            'Content-Type': 'multipart/form-data',
-                            'Authorization': req.headers.authorization,
-                        },
-                    });
-                    if (response.status === 200) {
-                        console.log("success")
                     }
                 }
             } catch (error) {
@@ -174,12 +163,12 @@ const addFile = async (req, res) => {
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
             }
         });
-
         req.busboy.on('finish', async () => {
             try {
                 console.log('Файлы успешно сохранены в базу данных и сжаты:', fileInfoArray);
 
-                const allProcessed = fileInfoArray.every(file => file.processed);
+                const allProcessed = true;
+
                 if (allProcessed) {
                     res.status(200).send('Файлы успешно загружены и реплики созданы.');
                 } else {
@@ -190,6 +179,7 @@ const addFile = async (req, res) => {
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
             }
         });
+
     } catch (error) {
         console.error('Ошибка обработки запроса:', error);
         res.status(500).send({ error: 'Внутренняя ошибка сервера' });
