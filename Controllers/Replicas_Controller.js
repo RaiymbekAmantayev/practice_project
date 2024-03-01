@@ -1,20 +1,13 @@
-const fss = require('fs-extra');
-const db = require('../models');
 const axios = require('axios');
 const FormData = require('form-data');
 const path = require('path');
 const fs = require('fs');
-const Replicas = db.file_replicas;
-const File = db.file;
-const Point = db.points;
-const { Op } = require("sequelize");
-const Compressing = db.compressing
-const ffmpeg = require("fluent-ffmpeg");
 const {promises: fsPromises} = require("fs");
 
 const config = {
     port: process.env.PORT,
-    folder : process.env.ROOT_FOLDER
+    folder : process.env.ROOT_FOLDER,
+    master: process.env.MASTER
 }
 const compressedFilesCache = {};
 
@@ -46,11 +39,10 @@ const compressVideo = (filePath) => {
                 console.log('Сжатие завершено для файла:', filePath);
 
                 try {
-                    // Обновление записи в базе данных для указания, что файл сжат
-                    await File.update({ compressed: 1 }, { where: { file: filePath } });
-                    console.log('Запись в базе данных обновлена для файла:', filePath);
-
-                    // Удаляем оригинальный файл
+                    const response = await axios.put(`${config.master}/api/master/file/compress?filePath=${filePath}`);
+                    if(response.status == 200) {
+                        console.log('Запись в базе данных обновлена для файла:', filePath);
+                    }
                     await fs.unlink(filePath, (err) => {
                         if (err) {
                             console.error('Ошибка при удалении оригинального файла:', err);
@@ -83,27 +75,28 @@ const compressVideo = (filePath) => {
 
 const processReplication = async () => {
     try {
-        const replicas = await Replicas.findAll({
-            where: { status: 'waiting' },
-            limit: 10
-        });
-
-        if (!replicas.length) {
+        const replicas = await axios.get(`${config.master}/api/master/rep/get/wait`)
+        console.log(replicas.data)
+        if (replicas.data == "replic not found") {
             console.log('Нет файлов для репликации со статусом "waiting"');
             return;
         }
 
-        for (const replica of replicas) {
-            const file = await File.findByPk(replica.fileId);
-            const point = await Point.findByPk(replica.pointId);
-
+        for (const replica of replicas.data) {
+            const files = await axios.get(`${config.master}/api/master/file/${replica.fileId}`)
+            const points = await axios.get(`${config.master}/api/point/get/${replica.pointId}`);
+            console.log(points)
+            console.log(files)
+            const file = files.data
+            const point = points.data
             if (!file) {
                 console.error('Файл с ID', replica.fileId, 'не найден в базе данных');
                 continue;
             }
 
             let compressedFilePath = file.file;
-            const compressing = await Compressing.findOne({where:{fileId:file.id}})
+            const compress = await axios.get(`${config.master}/api/master/compress/status?fileId=${file.id}`)
+            const compressing = compress.data
             if (compressing && compressing.compressingStatus === 1 && file.mimeType.includes('video') && file.compressed === 0) {
                 compressedFilePath = await compressVideo(file.file);
                 compressedFilesCache[file.file] = compressedFilePath;
@@ -122,8 +115,10 @@ const processReplication = async () => {
             });
 
             if (response.status === 200) {
-                await Replicas.update({ status: 'ready' }, { where: { id: replica.id } });
-                console.log('Файл успешно реплицирован:', file.name);
+                const newStatus = await axios.put(`${config.master}/api/master/rep/update/${replica.id}`)
+                if(newStatus.status === 200){
+                    console.log('Файл успешно реплицирован:', file.name);
+                }
             }
         }
 
@@ -179,67 +174,3 @@ startReplicationProcess();
 
 // startCompressing();
 
-
-
-const Show = async (req, res) => {
-    try {
-        const point = await Point.findOne({ where: { base_url: `http://127.0.0.1:${config.port}` } });
-        const replicase = await Replicas.findAll({
-            include: [
-                {
-                    model: File,
-                    as: "files"
-                },
-                {
-                    model: Point,
-                    as: "points"
-                }
-            ]
-        });
-
-        const filteredReplicase = replicase.filter(rep => rep.pointId === point.id);
-
-        res.send(filteredReplicase);
-    } catch (error) {
-        console.error('Error in Show function:', error);
-        res.status(500).send('Internal Server Error');
-    }
-};
-
-const ShowByDocId = async (req, res) => {
-    try {
-        const documentId = req.query.documentId;
-        const files = await File.findAll({where:{documentId:documentId}})
-        const fileIds = files.map(file => file.id);
-        const point = await Point.findOne({ where: { base_url: `http://127.0.0.1:${config.port}` } });
-        const replicase = await Replicas.findAll({
-            where: {
-                fileId: {
-                    [Op.in]: fileIds
-                }
-            },
-            include: [
-                {
-                    model: File,
-                    as: "files"
-                },
-                {
-                    model: Point,
-                    as: "points"
-                }
-            ]
-        });
-        const filteredReplicase = replicase.filter(rep => rep.pointId === point.id);
-
-        res.send(filteredReplicase);
-    } catch (error) {
-        console.error('Error in Show function:', error);
-        res.status(500).send('Internal Server Error');
-    }
-};
-
-module.exports={
-    Show,
-    ShowByDocId,
-    Replicas
-}

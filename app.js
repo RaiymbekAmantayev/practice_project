@@ -23,18 +23,10 @@ app.use(connectBusboy());
 app.use(`/${Port.folder}`, express.static(path.join(__dirname, `/${Port.folder}`)));
 
 
-const PointRouter = require("./router/point_router")
-const UserRouter = require("./router/user-router")
 const FileRouter = require("./router/file-router")
-const ReplicaseRouter = require('./router/replicase-router')
-const MasterRouter = require('./router/masterRouter')
-
-app.use("/api/point", PointRouter);
-app.use("/api/user", UserRouter)
+const ReplicROuter = require('./router/replicase-router')
 app.use("/api/file", FileRouter)
-app.use("/api/rep", ReplicaseRouter)
-app.use("/api/master",MasterRouter)
-
+app.use("/api/rep", ReplicROuter)
 app.listen(Port.Port, () => {
     console.log('Server running on port http://localhost:' + Port.Port);
 });
