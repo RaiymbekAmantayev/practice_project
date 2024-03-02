@@ -30,6 +30,7 @@ const getFieldCounter = async () => {
 fileIdCounter=getFieldCounter();
 
 
+// закачивание на поинт
 const addFile = async (req, res) => {
     const user = req.user;
     let pointIdArray = [];
@@ -206,7 +207,7 @@ const addFileWithoutDb = async (req, res) => {
             try {
                 console.log('name:', name);
                 console.log('documentId:', documentId);
-                console.log('fileIds:', fileIds); // Используйте переданный массив id файлов
+                console.log('fileIds:', fileIds);
 
                 const fileId = fileIds.shift();
                 console.log(config.folder)
@@ -242,10 +243,9 @@ const addFileWithoutDb = async (req, res) => {
 
         req.busboy.on('finish', async () => {
             try {
-                // Дождитесь завершения всех асинхронных операций по сохранению файлов
+
                 const uploadedFiles = await Promise.all(filePromises);
 
-                // Вместо этого, отправка подтверждения успешной загрузки с информацией о загруженных файлах
                 res.status(200).send({ success: true, uploadedFiles });
             } catch (error) {
                 console.error('Ошибка при завершении:', error);
