@@ -240,18 +240,16 @@ const addFileWithoutDb = async (req, res) => {
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
             }
         });
-
         req.busboy.on('finish', async () => {
             try {
-
                 const uploadedFiles = await Promise.all(filePromises);
-
                 res.status(200).send({ success: true, uploadedFiles });
             } catch (error) {
                 console.error('Ошибка при завершении:', error);
                 res.status(500).send({ error: 'Внутренняя ошибка сервера' });
             }
         });
+
     } catch (error) {
         console.error('Error processing request:', error);
         res.status(500).send({ error: 'Internal Server Error' });
@@ -259,10 +257,23 @@ const addFileWithoutDb = async (req, res) => {
 };
 
 
-
+const DeleteFiles = async (req, res)=>{
+    try{
+        const filePath = req.body.filePath
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            res.status(200).send("Файл успешно удален");
+        } else {
+            return res.send("Файл не найден");
+        }
+    }catch (e){
+        res.status(500).send({ error: 'Internal Server Error' });
+    }
+}
 
 
 module.exports = {
     addFile,
     addFileWithoutDb,
+    DeleteFiles
 };

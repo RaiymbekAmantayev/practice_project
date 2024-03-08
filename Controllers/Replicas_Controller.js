@@ -146,7 +146,9 @@ const processReplication = async () => {
                     const wordsArray = errorMessage.split(' ');
                     const firstFourWords = wordsArray.slice(0, 4);
                     console.error('Ошибка при отправке файла на репликацию:', firstFourWords.join(' '));
-                    typeError = firstFourWords.join(' ');
+                    if (firstFourWords.join(' ') !== "Request failed with status"){
+                        typeError = firstFourWords.join(' ');
+                    }
                 }
 
 
@@ -155,16 +157,18 @@ const processReplication = async () => {
 
             if (!replicationSuccessful) {
                 if(typeError){
-                    const addMonitoring = await axios.post(`${config.master}/api/monitoring/add`,{fileId:replica.fileId,typeError: typeError});
+                    const addMonitoring = await axios.post(`${config.master}/api/monitoring/add`,{fileId:replica.fileId, ReplicasId:replica.id, typeError: typeError});
                     console.log(addMonitoring.status)
                 }
                 if(typeErrorCompress){
-                    const addMonitoring = await axios.post(`${config.master}/api/monitoring/add`,{fileId:replica.fileId,typeError: typeErrorCompress});
+                    const addMonitoring = await axios.post(`${config.master}/api/monitoring/add`,{fileId:replica.fileId,ReplicasId:replica.id,typeError: typeErrorCompress});
                     console.log(addMonitoring.status)
                 }
-                const newError = await axios.put(`${config.master}/api/master/rep/update/error/${replica.id}`);
-                console.log("fileId is ",replica.fileId)
-                console.log("error status: ", newError.status);
+                if(typeErrorCompress || typeError){
+                    const newError = await axios.put(`${config.master}/api/master/rep/update/error/${replica.id}`);
+                    console.log("fileId is ",replica.fileId)
+                    console.log("error status: ", newError.status);
+                }
             }
         }
 
