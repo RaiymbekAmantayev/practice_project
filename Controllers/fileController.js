@@ -58,12 +58,13 @@ const addFile = async (req, res) => {
             try {
                 fileIdCounter++;
                 const folderPath = path.join(config.folder, documentId, fileIdCounter.toString());
+                const folderPathForDb =  path.join(documentId, fileIdCounter.toString());
                 if (!fs.existsSync(folderPath)) {
                     fs.mkdirSync(folderPath, { recursive: true });
                 }
                 const filePath = path.join(folderPath, fileIdCounter.toString());
                 const writeStream = fs.createWriteStream(filePath);
-
+                const filePathForDb = path.join(folderPathForDb, fileIdCounter.toString())
                 file.pipe(writeStream);
                 name = originalFilename.filename;
                 const mimeType = originalFilename.mimeType
@@ -71,7 +72,7 @@ const addFile = async (req, res) => {
                 const fileInfoWithCompression = {
                     id: fileIdCounter,
                     name,
-                    file: filePath,
+                    file: filePathForDb,
                     documentId,
                     mimeType,
                 };
@@ -272,8 +273,27 @@ const DeleteFiles = async (req, res)=>{
 }
 
 
+const showFile = async (req, res) => {
+    try {
+        const filePath = req.query.filePath;
+        const fullpath = config.folder + filePath;
+
+        if (fs.existsSync(fullpath)) {
+            // Отправляем файл как вложение для скачивания
+            res.download(fullpath);
+        } else {
+            res.status(404).send('File not found');
+        }
+    } catch (error) {
+        console.error('Error in showFile function:', error);
+        res.status(500).send({ error: 'Internal Server Error' });
+    }
+};
+
+
 module.exports = {
     addFile,
     addFileWithoutDb,
-    DeleteFiles
+    DeleteFiles,
+    showFile
 };
